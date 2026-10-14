@@ -99,6 +99,13 @@ dylib_t dylib_load(const char *path)
    path_wide = utf8_to_utf16_string_alloc(relative_path);
    lib       = LoadPackagedLibrary(path_wide, 0);
    free(path_wide);
+   {
+      /* cores open game files themselves: through the file broker, so any USB drive works
+       * (uwp/uwp_file_redirect.cpp) */
+      extern unsigned uwp_redirect_file_apis(void *module);
+      if (lib)
+         uwp_redirect_file_apis(lib);
+   }
 #elif defined(LEGACY_WIN32_RUNTIME)
    dylib_t lib        = NULL;
 

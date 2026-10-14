@@ -50,6 +50,8 @@
 #include "../frontend/frontend.h"
 #include "../input/input_keymaps.h"
 #include "../verbosity.h"
+#include "../content.h"
+#include "../tasks/task_content.h"
 #include "uwp_func.h"
 #include "uwp_async.h"
 #include <compat/strl.h>
@@ -296,8 +298,16 @@ App::App() :
 }
 
 /* The first method called when the IFrameworkView is being created. */
+extern "C" void uwp_redirect_file_apis_startup(void);
+extern "C" void RARCH_LOG_uwp_redirect(const char *what, unsigned count)
+{
+   RARCH_LOG("[UWP] File access through the broker (any USB drive): %s, %u imports.\n", what, count);
+}
+
 void App::Initialize(CoreApplicationView const& applicationView)
 {
+   uwp_redirect_file_apis_startup();
+
    /* Register event handlers for app lifecycle. This example
     * includes Activated, so that we can make the CoreWindow active and start
     * rendering on the window. */
@@ -404,6 +414,202 @@ void App::Uninitialize()
    }
 }
 
+/* Game Vault keeps BIOS files, save files and states on the games USB drive, in "<drive>\Game Vault", and
+ * sends that folder as "home" with every game. The first time, what RetroArch had in its own storage is moved
+ * there (a file already on the drive is left alone), and RetroArch's system, save and state folders are pointed
+ * at it. A game started without "home" uses RetroArch's own folders again, so a stick that is no longer plugged
+ * in is never looked for. */
+static std::string s_home;
+/* The frame-rate display: Game Vault sends "fps=1" while it is on. It is turned off again
+ * only when it was Game Vault that turned it on (LocalState\gamevault_fps.on), so a choice made in RetroArch's
+ * own menu is left alone. */
+static bool s_fps;
+
+/* "true" / "false" for video_fps_show, or empty when nothing changes */
+static std::string FpsChange()
+{
+   std::wstring mark = std::wstring(winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path()) +
+         L"\\gamevault_fps.on";
+   WIN32_FILE_ATTRIBUTE_DATA d;
+   bool marked = GetFileAttributesExFromAppW(mark.c_str(), GetFileExInfoStandard, &d) != 0;
+   if (s_fps && !marked)
+   {
+      HANDLE h = CreateFile2FromAppW(mark.c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
+      if (h != INVALID_HANDLE_VALUE)
+         CloseHandle(h);
+   }
+   else if (!s_fps && marked)
+   {
+      DeleteFileFromAppW(mark.c_str());
+      return "false";
+   }
+   return s_fps ? "true" : std::string();
+}
+static const char *const kHomeFolders[3][3] = {
+   /* setting, folder in "home", RetroArch's own folder */
+   { "system_directory",    "bios",   "system" },
+   { "savefile_directory",  "saves",  "saves" },
+   { "savestate_directory", "states", "states" },
+};
+
+static std::string LocalStateDir()
+{
+   return winrt::to_string(winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path());
+}
+
+static bool UnderLocalState(const std::string &path)
+{
+   std::string own = LocalStateDir();
+   return !path.empty() && _strnicmp(path.c_str(), own.c_str(), own.size()) == 0;
+}
+
+static void MoveTreeToHome(const std::wstring &from, const std::wstring &to)
+{
+   WIN32_FIND_DATAW fd;
+   HANDLE h = FindFirstFileExFromAppW((from + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch,
+         NULL, 0);
+   if (h == INVALID_HANDLE_VALUE)
+      return;
+   CreateDirectoryFromAppW(to.c_str(), NULL);
+   do
+   {
+      std::wstring name = fd.cFileName;
+      if (name == L"." || name == L"..")
+         continue;
+      std::wstring src = from + L"\\" + name, dst = to + L"\\" + name;
+      if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+      {
+         MoveTreeToHome(src, dst);
+         RemoveDirectoryFromAppW(src.c_str());
+      }
+      else if (CopyFileFromAppW(src.c_str(), dst.c_str(), TRUE))
+         DeleteFileFromAppW(src.c_str());
+   } while (FindNextFileW(h, &fd));
+   FindClose(h);
+}
+
+/* The folder a setting names: "default" (or nothing) is RetroArch's own folder in LocalState. */
+static std::string FolderOf(const std::string &value, const char *own)
+{
+   if (value.empty() || value == "default")
+      return LocalStateDir() + "\\" + own;
+   if (value[0] == '~')
+      return LocalStateDir() + value.substr(1);
+   return value;
+}
+
+/* A setting's value in a .cfg file, without the quotes. */
+static std::string CfgValue(const std::string &text, const char *key)
+{
+   size_t len = strlen(key), pos = 0;
+   while ((pos = text.find(key, pos)) != std::string::npos)
+   {
+      bool line_start = pos == 0 || text[pos - 1] == '\n';
+      size_t eq       = text.find_first_not_of(" \t", pos + len);
+      pos            += len;
+      if (!line_start || eq == std::string::npos || text[eq] != '=')
+         continue;
+      size_t q1 = text.find('"', eq), nl = text.find('\n', eq);
+      if (q1 == std::string::npos || q1 > nl)
+         return std::string();
+      size_t q2 = text.find('"', q1 + 1);
+      return q2 == std::string::npos ? std::string() : text.substr(q1 + 1, q2 - q1 - 1);
+   }
+   return std::string();
+}
+
+static std::string ReadSmallFile(const std::string &path)
+{
+   std::string text;
+   HANDLE h = CreateFile2FromAppW(winrt::to_hstring(path).c_str(), GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING,
+         NULL);
+   if (h == INVALID_HANDLE_VALUE)
+      return text;
+   char buf[16384];
+   DWORD n;
+   while (ReadFile(h, buf, sizeof(buf), &n, NULL) && n)
+      text.append(buf, n);
+   CloseHandle(h);
+   return text;
+}
+
+/* The three folders to use for this game: in "home", or RetroArch's own when the last game had set "home".
+ * The current values come from the running settings, or before start-up from retroarch.cfg. Returns false
+ * when nothing has to change. */
+static bool HomeFolders(const std::string current[3], std::string want[3])
+{
+   bool change = false;
+   for (int i = 0; i < 3; i++)
+   {
+      if (s_home.empty())
+         want[i] = current[i].find("\\Game Vault\\") != std::string::npos ? "default" : current[i];
+      else
+      {
+         want[i]         = s_home + "\\" + kHomeFolders[i][1];
+         std::string own = FolderOf(current[i], kHomeFolders[i][2]);
+         CreateDirectoryFromAppW(winrt::to_hstring(want[i]).c_str(), NULL);
+         /* only RetroArch's own storage is emptied, never another drive's Game Vault folder */
+         if (UnderLocalState(own))
+            MoveTreeToHome(winrt::to_hstring(own).c_str(), winrt::to_hstring(want[i]).c_str());
+      }
+      change |= want[i] != current[i];
+   }
+   return change;
+}
+
+/* Before start-up: the folders go in a small extra config, given to RetroArch as --appendconfig. */
+static void HomeBeforeStart(std::vector<std::string> *args)
+{
+   std::string cfg = ReadSmallFile(LocalStateDir() + "\\retroarch.cfg"), current[3], want[3];
+   for (int i = 0; i < 3; i++)
+      current[i] = CfgValue(cfg, kHomeFolders[i][0]);
+   std::string extra = LocalStateDir() + "\\gamevault_home.cfg", text, fps = FpsChange();
+   if (HomeFolders(current, want))
+      for (int i = 0; i < 3; i++)
+         text += std::string(kHomeFolders[i][0]) + " = \"" + want[i] + "\"\n";
+   if (!fps.empty())
+      text += "video_fps_show = \"" + fps + "\"\n";
+   /* RetroArch's log of each session goes to the drive too (logs\retroarch.log), where a player can pick
+    * it up for a problem report */
+   if (!s_home.empty())
+      text += "log_to_file = \"true\"\nlog_to_file_timestamp = \"false\"\nlog_verbosity = \"true\"\n"
+              "frontend_log_level = \"1\"\nlibretro_log_level = \"1\"\nlog_dir = \"" + s_home + "\\logs\"\n";
+   if (text.empty())
+      return;
+   HANDLE h = CreateFile2FromAppW(winrt::to_hstring(extra).c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
+   if (h == INVALID_HANDLE_VALUE)
+      return;
+   DWORD n;
+   WriteFile(h, text.data(), (DWORD)text.size(), &n, NULL);
+   CloseHandle(h);
+   if (args->empty())
+      args->push_back("retroarch");
+   args->insert(args->begin() + 1, extra);
+   args->insert(args->begin() + 1, "--appendconfig");
+}
+
+/* While running (a new game sent to an open RetroArch): straight into the settings. */
+static void HomeWhileRunning(void)
+{
+   settings_t *settings = config_get_ptr();
+   std::string fps      = FpsChange();
+   if (!fps.empty())
+      settings->bools.video_fps_show = fps == "true";
+   std::string current[3], want[3];
+   current[0] = settings->paths.directory_system;
+   current[1] = dir_get_ptr(RARCH_DIR_SAVEFILE);
+   current[2] = dir_get_ptr(RARCH_DIR_SAVESTATE);
+   if (!HomeFolders(current, want))
+      return;
+   for (int i = 0; i < 3; i++)
+      if (want[i] == "default")
+         want[i] = FolderOf("", kHomeFolders[i][2]);
+   strlcpy(settings->paths.directory_system, want[0].c_str(), sizeof(settings->paths.directory_system));
+   dir_set(RARCH_DIR_SAVEFILE, want[1].c_str());
+   dir_set(RARCH_DIR_SAVESTATE, want[2].c_str());
+   RARCH_LOG("[UWP] Game Vault folders: %s, %s, %s\n", want[0].c_str(), want[1].c_str(), want[2].c_str());
+}
+
 /* Application lifecycle event handlers. */
 
 void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEventArgs const& args)
@@ -416,10 +622,40 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
    std::vector<std::string> argvTmp;
    ParseProtocolArgs(args, &argc, &argv, &argvTmp);
 
-   /* Start only if not already initialized.
-    * If there is a game in progress, just return */
+   /* Start only if not already initialized. */
    if (m_initialized)
+   {
+      /* Already running (the player left with the Xbox button instead of
+       * quitting) and a launcher sends a new game: load it instead of
+       * ignoring it, so the launcher never has to ask the player to quit
+       * RetroArch first. "retroarch -L <core> <content>" */
+      const char *core    = NULL;
+      const char *content = NULL;
+      for (size_t i = 0; i + 1 < argvTmp.size(); i++)
+      {
+         if (argvTmp[i] == "-L")
+         {
+            core = argvTmp[i + 1].c_str();
+            for (size_t j = i + 2; j < argvTmp.size(); j++)
+            {
+               if (argvTmp[j].empty() || argvTmp[j][0] == '-')
+                  continue;
+               content = argvTmp[j].c_str();
+               break;
+            }
+            break;
+         }
+      }
+      if (core && content)
+      {
+         HomeWhileRunning();
+         content_ctx_info_t content_info = {0};
+         RARCH_LOG("[UWP] New game while running: %s with %s\n", content, core);
+         task_push_load_content_with_new_core_from_companion_ui(
+               core, content, NULL, NULL, NULL, &content_info, NULL, NULL);
+      }
       return;
+   }
 
    if ((ret = rarch_main(argc, argv.data(), NULL)) != 0)
    {
@@ -759,6 +995,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
    if (args.Kind() == ActivationKind::Protocol)
    {
       unsigned i;
+      std::string home;
+      bool fps = false;
       ProtocolActivatedEventArgs protocolArgs = args.as<ProtocolActivatedEventArgs>();
       WwwFormUrlDecoder query = protocolArgs.Uri().QueryParsed();
 
@@ -771,7 +1009,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
           * to launch a different game. */
          if (arg.Name() == L"forceExit")
             CoreApplication::Exit();
-         else if (arg.Name() == L"cmd" && !m_initialized)
+         else if (arg.Name() == L"cmd")
          {
             std::wstring wsValue(arg.Value().c_str());
             std::string strValue(wsValue.begin(), wsValue.end());
@@ -789,8 +1027,18 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
           * making it easy to integrate RA with other UWP frontends */
          else if (arg.Name() == L"launchOnExit")
             m_launchOnExit = arg.Value();
+         /* Game Vault's folder on the games drive (see HomeFolders) */
+         else if (arg.Name() == L"home")
+            home = winrt::to_string(arg.Value());
+         else if (arg.Name() == L"fps")
+            fps = arg.Value() == L"1";
       }
+      s_home = home;
+      s_fps  = fps;
    }
+
+   if (!m_initialized)
+      HomeBeforeStart(argvTmp);
 
    if (!m_initialized)
    {

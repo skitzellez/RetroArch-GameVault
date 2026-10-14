@@ -54,6 +54,11 @@
 #include "vfs_implementation_smb.h"
 #endif
 
+#ifdef HAVE_CDROM
+/* Xbox (UWP): the console's drive is reached through uwp/uwp_cdrom.cpp - Copyright (c) 2026 Skitzelles, for Game Vault */
+#include <vfs/vfs_implementation_cdrom.h>
+#endif
+
 namespace
 {
    /* UWP deals with paths containing / instead of
@@ -81,6 +86,23 @@ int retro_vfs_file_close_impl(libretro_vfs_implementation_file* stream)
     if (!stream)
         return -1;
 
+#ifdef HAVE_CDROM
+    if (stream->scheme == VFS_SCHEME_CDROM)
+    {
+        retro_vfs_file_close_cdrom(stream);
+        if (stream->cdrom)
+        {
+            if (stream->cdrom->cue_buf)
+                free(stream->cdrom->cue_buf);
+            free(stream->cdrom);
+        }
+        if (stream->orig_path)
+            free(stream->orig_path);
+        free(stream);
+        return 0;
+    }
+#endif
+
 #ifdef HAVE_SMBCLIENT
     if (stream->scheme == VFS_SCHEME_SMB)
         retro_vfs_file_close_smb(stream);
@@ -104,6 +126,10 @@ int retro_vfs_file_close_impl(libretro_vfs_implementation_file* stream)
 
 int retro_vfs_file_error_impl(libretro_vfs_implementation_file* stream)
 {
+#ifdef HAVE_CDROM
+    if (stream->scheme == VFS_SCHEME_CDROM)
+        return retro_vfs_file_error_cdrom(stream);
+#endif
 #ifdef HAVE_SMBCLIENT
     if (stream->scheme == VFS_SCHEME_SMB)
         return retro_vfs_file_error_smb(stream);
@@ -133,6 +159,10 @@ int64_t retro_vfs_file_tell_impl(libretro_vfs_implementation_file* stream)
 
     if ((stream->hints & RFILE_HINT_UNBUFFERED) == 0)
     {
+#ifdef HAVE_CDROM
+        if (stream->scheme == VFS_SCHEME_CDROM)
+           return retro_vfs_file_tell_cdrom(stream);
+#endif
 #ifdef HAVE_SMBCLIENT
         if (stream->scheme == VFS_SCHEME_SMB)
            return retro_vfs_file_tell_smb(stream);
@@ -151,6 +181,10 @@ int64_t retro_vfs_file_seek_internal(
 
     if ((stream->hints & RFILE_HINT_UNBUFFERED) == 0)
     {
+#ifdef HAVE_CDROM
+        if (stream->scheme == VFS_SCHEME_CDROM)
+            return retro_vfs_file_seek_cdrom(stream, offset, whence);
+#endif
 #ifdef HAVE_SMBCLIENT
         if (stream->scheme == VFS_SCHEME_SMB)
             return retro_vfs_file_seek_smb(stream, offset, whence);
@@ -172,6 +206,10 @@ int64_t retro_vfs_file_read_impl(libretro_vfs_implementation_file* stream,
     if (!stream)
         return -1;
 
+#ifdef HAVE_CDROM
+    if (stream->scheme == VFS_SCHEME_CDROM)
+        return retro_vfs_file_read_cdrom(stream, s, len);
+#endif
 #ifdef HAVE_SMBCLIENT
     if (stream->scheme == VFS_SCHEME_SMB)
         return retro_vfs_file_read_smb(stream, s, len);
@@ -286,6 +324,38 @@ libretro_vfs_implementation_file* retro_vfs_file_open_impl(
     stream->scheme    = VFS_SCHEME_NONE;
 #ifdef HAVE_SMBCLIENT
     stream->smb_fh    = 0;
+#endif
+#ifdef HAVE_CDROM
+    stream->cdrom     = NULL;
+    stream->map_handle = NULL;
+    if (path && !strncmp(path, "cdrom://", 8) && path[8] != '\0')
+    {
+        if (!(stream->cdrom = (vfs_cdrom_t*)calloc(1, sizeof(*stream->cdrom))))
+        {
+            free(stream);
+            return NULL;
+        }
+        /* A core that takes the track's name in the cue sheet for a relative one hands back
+         * "cdrom://d:/cdrom://d:/drive-track01.bin": the last "cdrom://" is where the name starts. */
+        for (const char *again; (again = strstr(path + 8, "cdrom://")) != NULL;)
+            path = again;
+        stream->scheme    = VFS_SCHEME_CDROM;
+        stream->orig_path = strdup(path);
+        retro_vfs_file_open_cdrom(stream, path + 8, mode, hints);
+        if (!stream->fh || stream->fh == INVALID_HANDLE_VALUE)
+        {
+            if (stream->cdrom->cue_buf)
+                free(stream->cdrom->cue_buf);
+            free(stream->cdrom);
+            free(stream->orig_path);
+            free(stream);
+            return NULL;
+        }
+        retro_vfs_file_seek_cdrom(stream, 0, SEEK_END);
+        stream->size = retro_vfs_file_tell_cdrom(stream);
+        retro_vfs_file_seek_cdrom(stream, 0, SEEK_SET);
+        return stream;
+    }
 #endif
 
 #ifdef VFS_FRONTEND

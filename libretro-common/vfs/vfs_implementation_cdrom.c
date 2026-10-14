@@ -293,6 +293,13 @@ void retro_vfs_file_open_cdrom(
    printf("[CDROM] Open: Path %s URI %s\n", cdrom_path, path);
    fflush(stdout);
 #endif
+#ifdef __WINRT__
+   /* Xbox (UWP): the console's drive is reached through uwp/uwp_cdrom.cpp - Copyright (c) 2026 Skitzelles, for Game Vault */
+   {
+      extern int uwp_cdrom_available(void);
+      stream->fh = uwp_cdrom_available() ? (HANDLE)(size_t)0x4344 : INVALID_HANDLE_VALUE;
+   }
+#else
    stream->fh = CreateFile(cdrom_path,
          GENERIC_READ | GENERIC_WRITE,
          FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -300,6 +307,7 @@ void retro_vfs_file_open_cdrom(
          OPEN_EXISTING,
          FILE_ATTRIBUTE_NORMAL,
          NULL);
+#endif
 
    if (stream->fh == INVALID_HANDLE_VALUE)
       return;
@@ -432,8 +440,13 @@ int retro_vfs_file_close_cdrom(libretro_vfs_implementation_file *stream)
 #endif
 
 #if defined(_WIN32) && !defined(_XBOX)
+#ifdef __WINRT__
+   if (!stream->fh || stream->fh == INVALID_HANDLE_VALUE)
+      return -1;
+#else
    if (!stream->fh || !CloseHandle(stream->fh))
       return -1;
+#endif
 #elif defined(__APPLE__)
    if (!stream->iokit_mmc)
       return -1;

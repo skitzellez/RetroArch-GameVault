@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap mp rescap">
-  <Identity Name="1e4cf179-f3c2-404f-b9f3-cb2070a5aad8" Publisher="CN=libretro" Version="1.22.2.0" />
-  <mp:PhoneIdentity PhoneProductId="1e4cf179-f3c2-404f-b9f3-cb2070a5aad8" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+  <Identity Name="GamerDad.RetroArchForGameVault" Publisher="CN=GamerDad" Version="1.22.2.18" />
+  <mp:PhoneIdentity PhoneProductId="6a3f2c1e-9b4d-4e7a-8c15-2f0d7b9e4a61" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
-    <DisplayName>RetroArch</DisplayName>
-    <PublisherDisplayName>libretro</PublisherDisplayName>
+    <DisplayName>RetroArch for Game Vault</DisplayName>
+    <PublisherDisplayName>GamerDad</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
@@ -15,15 +15,15 @@
   </Resources>
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="RetroArch.App">
-      <uap:VisualElements DisplayName="RetroArch" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" Description="RetroArch is a frontend for emulators, game engines and media players. It enables you to run classic games on a wide range of computers and consoles through its slick graphical interface. Settings are also unified so configuration is done once and for all. RetroArch has advanced features like shaders, netplay, rewinding, next-frame response times, and more!" BackgroundColor="transparent">
+      <uap:VisualElements DisplayName="RetroArch for Game Vault" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" Description="RetroArch (by libretro) built for Game Vault: plays from any USB drive and from the console's disc drive. RetroArch is a frontend for emulators, game engines and media players. It enables you to run classic games on a wide range of computers and consoles through its slick graphical interface. Settings are also unified so configuration is done once and for all. RetroArch has advanced features like shaders, netplay, rewinding, next-frame response times, and more!" BackgroundColor="transparent">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square310x310Logo="Assets\LargeTile.png" Square71x71Logo="Assets\SmallTile.png">
         </uap:DefaultTile>
         <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#000000"/>
       </uap:VisualElements>
       <Extensions>
         <uap:Extension Category="windows.protocol">
-          <uap:Protocol Name="retroarch">
-            <uap:DisplayName>retroarch</uap:DisplayName>
+          <uap:Protocol Name="gamevault-retroarch">
+            <uap:DisplayName>RetroArch for Game Vault</uap:DisplayName>
           </uap:Protocol>
         </uap:Extension>
       </Extensions>
@@ -33,8 +33,11 @@
     <Capability Name="internetClient" />
     <Capability Name="internetClientServer" />
     <Capability Name="privateNetworkClientServer" />
+    <uap:Capability Name="removableStorage" />
     <rescap:Capability Name="runFullTrust"/>
     <rescap:Capability Name="broadFileSystemAccess" />
     <rescap:Capability Name="expandedResources" />
+    <DeviceCapability Name="optical" />
+    <DeviceCapability Name="53f56308-b6bf-11d0-94f2-00a0c91efb8b" />
   </Capabilities>
 </Package>

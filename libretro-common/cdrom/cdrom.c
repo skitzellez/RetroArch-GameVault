@@ -279,6 +279,14 @@ static void cdrom_print_sense_data(const unsigned char *s, size_t len)
 #endif
 
 #if defined(_WIN32) && !defined(_XBOX)
+#ifdef __WINRT__
+/* Xbox (UWP): the console's drive is reached through uwp/uwp_cdrom.cpp - Copyright (c) 2026 Skitzelles, for Game Vault */
+extern int uwp_cdrom_command(int dir, void *buf, size_t len, unsigned char *cmd, size_t cmd_len, unsigned char *sense, size_t sense_len);
+static int cdrom_send_command_win32(const libretro_vfs_implementation_file *stream, CDROM_CMD_Direction dir, void *buf, size_t len, unsigned char *cmd, size_t cmd_len, unsigned char *sense, size_t sense_len)
+{
+   return uwp_cdrom_command(dir == DIRECTION_IN ? 1 : dir == DIRECTION_OUT ? 2 : 0, buf, len, cmd, cmd_len, sense, sense_len);
+}
+#else
 static int cdrom_send_command_win32(const libretro_vfs_implementation_file *stream, CDROM_CMD_Direction dir, void *buf, size_t len, unsigned char *cmd, size_t cmd_len, unsigned char *sense, size_t sense_len)
 {
    DWORD ioctl_bytes;
@@ -353,6 +361,7 @@ static int cdrom_send_command_win32(const libretro_vfs_implementation_file *stre
 
    return 0;
 }
+#endif /* __WINRT__ */
 #endif
 
 #if defined(__linux__) && !defined(ANDROID)
