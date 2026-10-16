@@ -557,9 +557,49 @@ static bool HomeFolders(const std::string current[3], std::string want[3])
    return change;
 }
 
+/* Game Vault: a copy of RetroArch's settings outside its own storage. The console deletes an app's storage when
+ * the app is removed (a failed or queued update can do that), and with it every setting and controller choice.
+ * So retroarch.cfg is also kept in the publisher's shared folder (games\retroarch: outlives a reinstall) and on
+ * the games drive (<home>\settings\RetroArch retroarch.cfg: outlives a reset console), and put back by itself
+ * when RetroArch starts without one. Every start from Game Vault refreshes the copies. */
+static void SettingsBackup(void)
+{
+   std::wstring own = winrt::to_hstring(LocalStateDir() + "\\retroarch.cfg").c_str(), shared, drive;
+   try
+   {
+      std::wstring dir = std::wstring(winrt::Windows::Storage::ApplicationData::Current()
+            .GetPublisherCacheFolder(L"games").Path()) + L"\\retroarch";
+      CreateDirectoryFromAppW(dir.c_str(), NULL);
+      shared = dir + L"\\retroarch.cfg";
+   }
+   catch (...)
+   {
+   }
+   if (!s_home.empty())
+   {
+      std::wstring dir = winrt::to_hstring(s_home + "\\settings").c_str();
+      CreateDirectoryFromAppW(dir.c_str(), NULL);
+      drive = dir + L"\\RetroArch retroarch.cfg";
+   }
+   WIN32_FILE_ATTRIBUTE_DATA d;
+   if (!GetFileAttributesExFromAppW(own.c_str(), GetFileExInfoStandard, &d))
+   {
+      /* a reinstall (the shared copy) or a reset console (the drive's copy) */
+      if ((!shared.empty() && CopyFileFromAppW(shared.c_str(), own.c_str(), FALSE)) ||
+          (!drive.empty() && CopyFileFromAppW(drive.c_str(), own.c_str(), FALSE)))
+         RARCH_LOG("[Game Vault] Settings put back from the backup.\n");
+      return;
+   }
+   if (!shared.empty())
+      CopyFileFromAppW(own.c_str(), shared.c_str(), FALSE);
+   if (!drive.empty())
+      CopyFileFromAppW(own.c_str(), drive.c_str(), FALSE);
+}
+
 /* Before start-up: the folders go in a small extra config, given to RetroArch as --appendconfig. */
 static void HomeBeforeStart(std::vector<std::string> *args)
 {
+   SettingsBackup();
    std::string cfg = ReadSmallFile(LocalStateDir() + "\\retroarch.cfg"), current[3], want[3];
    for (int i = 0; i < 3; i++)
       current[i] = CfgValue(cfg, kHomeFolders[i][0]);
