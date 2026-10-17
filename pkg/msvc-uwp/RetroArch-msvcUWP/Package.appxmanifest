@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap mp rescap">
-  <Identity Name="GamerDad.RetroArchForGameVault" Publisher="CN=GamerDad" Version="1.22.2.20" />
+  <Identity Name="GamerDad.RetroArchForGameVault" Publisher="CN=GamerDad" Version="1.22.2.21" />
   <mp:PhoneIdentity PhoneProductId="6a3f2c1e-9b4d-4e7a-8c15-2f0d7b9e4a61" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
     <DisplayName>RetroArch for Game Vault</DisplayName>

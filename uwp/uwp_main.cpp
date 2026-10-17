@@ -442,6 +442,23 @@ static void ReadNetCred(void)
       return;
    std::wstring file = winrt::to_hstring(s_netcred_file).c_str();
    s_netcred_file.clear();
+   /* only Game Vault's own one-time files: the file is deleted after reading, so a link from any other app must
+    * not be able to name some other file */
+   {
+      std::wstring lower = file;
+      for (auto &c : lower)
+         c = towlower(c);
+      size_t name = lower.find_last_of(L'\\');
+      if (lower.find(L"..") != std::wstring::npos || lower.find(L'/') != std::wstring::npos ||
+          name == std::wstring::npos || name < 6 || lower.compare(name - 6, 6, L"\\vault") ||
+          lower.compare(name + 1, 8, L"netcred-") || lower.size() < 4 ||
+          lower.compare(lower.size() - 4, 4, L".txt") ||
+          lower.find(L"\\publishers\\") == std::wstring::npos)
+      {
+         RARCH_WARN("[Game Vault] Network sign-in file refused (not Game Vault's).\n");
+         return;
+      }
+   }
    HANDLE h = CreateFile2FromAppW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, NULL);
    if (h == INVALID_HANDLE_VALUE)
    {
