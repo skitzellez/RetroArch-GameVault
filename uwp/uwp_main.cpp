@@ -47,6 +47,10 @@
 
 #include "uwp_main.h"
 #include "../retroarch.h"
+#ifdef HAVE_SMBCLIENT
+#include "../libretro-common/vfs/vfs_implementation_smb.h"
+extern "C" void retroarch_smb_init(void);
+#endif
 #include "../frontend/frontend.h"
 #include "../input/input_keymaps.h"
 #include "../verbosity.h"
@@ -420,6 +424,71 @@ void App::Uninitialize()
  * at it. A game started without "home" uses RetroArch's own folders again, so a stick that is no longer plugged
  * in is never looked for. */
 static std::string s_home;
+/* Game Vault: a game on a PC's shared folder or a NAS comes as "smb://<server>/<share>/<path>" and is read straight
+ * from there (RetroArch's own SMB client, libretro-common/vfs/vfs_implementation_smb.c) instead of being copied to
+ * the console first. The sign-in comes as "netcred": a one-time file in the folder only Game Vault and its
+ * emulators can open, one line "server<tab>share<tab>user<tab>password" (as for xemu). It is read once, written
+ * over and deleted, and kept in memory only: never in retroarch.cfg, whose copies go to the games drive. */
+static std::string s_netcred_file;
+static struct
+{
+   bool set;
+   char server[256], share[256], user[256], password[256];
+} s_net;
+
+static void ReadNetCred(void)
+{
+   if (s_netcred_file.empty())
+      return;
+   std::wstring file = winrt::to_hstring(s_netcred_file).c_str();
+   s_netcred_file.clear();
+   HANDLE h = CreateFile2FromAppW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, NULL);
+   if (h == INVALID_HANDLE_VALUE)
+   {
+      RARCH_WARN("[Game Vault] Network sign-in file could not be opened.\n");
+      return;
+   }
+   char text[1100] = {0};
+   DWORD got = 0;
+   ReadFile(h, text, sizeof(text) - 1, &got, NULL);
+   CloseHandle(h);
+   h = CreateFile2FromAppW(file.c_str(), GENERIC_WRITE, 0, OPEN_EXISTING, NULL);
+   if (h != INVALID_HANDLE_VALUE)
+   {
+      std::string blank(got, ' ');
+      DWORD n;
+      WriteFile(h, blank.data(), got, &n, NULL);
+      CloseHandle(h);
+   }
+   DeleteFileFromAppW(file.c_str());
+   char *field[4] = {s_net.server, s_net.share, s_net.user, s_net.password};
+   const char *p = text;
+   memset(&s_net, 0, sizeof(s_net));
+   for (int i = 0; i < 4; i++)
+   {
+      const char *stop = i < 3 ? "\t" : "\r\n";
+      size_t n = strcspn(p, stop);
+      memcpy(field[i], p, n > 255 ? 255 : n);
+      p += n;
+      if (*p)
+         p++;
+   }
+   SecureZeroMemory(text, sizeof(text));
+   s_net.set = s_net.server[0] && s_net.share[0];
+   if (s_net.set)
+      RARCH_LOG("[Game Vault] Network games from %s, share %s.\n", s_net.server, s_net.share);
+}
+
+extern "C" void uwp_gamevault_smb_override(struct smb_settings *cfg)
+{
+   if (!s_net.set)
+      return;
+   cfg->server_address = s_net.server;
+   cfg->share          = s_net.share;
+   cfg->username       = s_net.user;
+   cfg->password       = s_net.password;
+   cfg->subdir         = "";
+}
 /* The frame-rate display: Game Vault sends "fps=1" while it is on. It is turned off again
  * only when it was Game Vault that turned it on (LocalState\gamevault_fps.on), so a choice made in RetroArch's
  * own menu is left alone. */
@@ -689,6 +758,8 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
       if (core && content)
       {
          HomeWhileRunning();
+         if (strncmp(content, "smb://", 6) == 0)
+            retroarch_smb_init();   /* the sign-in of the share this game is on */
          content_ctx_info_t content_info = {0};
          RARCH_LOG("[UWP] New game while running: %s with %s\n", content, core);
          task_push_load_content_with_new_core_from_companion_ui(
@@ -1072,7 +1143,10 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             home = winrt::to_string(arg.Value());
          else if (arg.Name() == L"fps")
             fps = arg.Value() == L"1";
+         else if (arg.Name() == L"netcred")
+            s_netcred_file = winrt::to_string(arg.Value());
       }
+      ReadNetCred();
       s_home = home;
       s_fps  = fps;
    }

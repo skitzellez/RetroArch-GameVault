@@ -398,6 +398,13 @@ void retroarch_smb_init(void)
    smb_global_cfg.num_contexts = settings->uints.smb_client_num_contexts;
    smb_global_cfg.auth_mode = settings->uints.smb_client_auth_mode;
    smb_global_cfg.subdir = settings->arrays.smb_client_subdir;
+#ifdef __WINRT__
+   {
+      /* RetroArch for Game Vault: the share of a game Game Vault sent (uwp/uwp_main.cpp) */
+      extern void uwp_gamevault_smb_override(struct smb_settings *cfg);
+      uwp_gamevault_smb_override(&smb_global_cfg);
+   }
+#endif
 
    smb_init_cfg(&smb_global_cfg);
 }
