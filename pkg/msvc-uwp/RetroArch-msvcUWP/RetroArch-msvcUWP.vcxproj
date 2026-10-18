@@ -294,6 +294,12 @@
       <DeploymentContent>true</DeploymentContent>
       <Link>%(Filename)%(Extension)</Link>
     </None>
+    <!-- Game Vault: the Ozone menu's pictures and fonts (libretro/retroarch-assets, CC-BY 4.0), used by uwp_main.cpp
+         when RetroArch's own assets folder lacks them; without them the menu shows no selection -->
+    <None Include="assets\ozone\**\*">
+      <DeploymentContent>true</DeploymentContent>
+      <Link>assets\ozone\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
     <None Include="RetroArch-msvcUWP_TemporaryKey.pfx" />
   </ItemGroup>
   <ItemGroup Condition="'$(Configuration)' == 'ReleaseANGLE' or '$(Configuration)' == 'DebugANGLE'">

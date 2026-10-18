@@ -74,11 +74,11 @@
 
 /* Compression protocols supported */
 #define NETPLAY_COMPRESSION_ZLIB (1<<0)
-#if HAVE_ZLIB
+/* Game Vault: zlib streams are always there - without zlib, trans_stream_get_zlib_*_backend() use the built-in
+ * DEFLATE codec, which writes and reads the same zlib-wrapped format. A build that offered no compression here
+ * (no HAVE_ZLIB, like this one) made RetroArch 1.22.2 - what most players have - crash as soon as it joined
+ * such a peer's room or such a peer joined its room. */
 #define NETPLAY_COMPRESSION_SUPPORTED NETPLAY_COMPRESSION_ZLIB
-#else
-#define NETPLAY_COMPRESSION_SUPPORTED 0
-#endif
 
 /* The keys supported by netplay */
 enum netplay_keys

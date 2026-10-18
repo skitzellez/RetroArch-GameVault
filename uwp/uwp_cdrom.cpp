@@ -43,6 +43,7 @@ struct SCSI_PASS_THROUGH
 enum { SCSI_IOCTL_DATA_OUT = 0, SCSI_IOCTL_DATA_IN = 1, SCSI_IOCTL_DATA_UNSPECIFIED = 2 };
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdarg>
@@ -77,7 +78,8 @@ namespace
       static FILE *f = nullptr;
       static int lines = 0;
       static ULONGLONG t0 = 0;
-      if (lines > 600)
+      /* "disc watch" lines always go in: the reads of a starting game fill the 600 lines in seconds */
+      if (lines > 600 && strncmp(fmt, "disc watch", 10) != 0)
          return;
       if (!f)
       {
@@ -285,6 +287,8 @@ extern "C" int uwp_cdrom_command(int dir, void *buf, size_t len,
          if (spt.ScsiStatus != 0)
          {
             const uint8_t *sn = q + sizeof(SCSI_PASS_THROUGH);
+            if (cmd[0] == 0x00)   /* TEST UNIT READY from the disc watch: "no disc" is its normal answer */
+               return;
             drive_log("command %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x, %u bytes: status %02x, sense %x/%02x/%02x",
                cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9], (unsigned)len,
                spt.ScsiStatus, sn[2] & 15, sn[12], sn[13]);
@@ -308,4 +312,85 @@ extern "C" int uwp_cdrom_command(int dir, void *buf, size_t len,
       }
    });
    return rv;
+}
+
+/* Game Vault: changing discs. While a game runs from the drive, a thread asks the drive once a second whether a
+ * disc is in it (TEST UNIT READY). Taking the disc out, or a different disc becoming ready, is handed to the main
+ * loop as an event (uwp_cdrom_media_event), which opens and closes the core's virtual disc lid as a player would
+ * have done in Quick Menu > Disc Control. */
+namespace
+{
+   std::atomic<bool> g_watch{false};
+   std::atomic<int>  g_media_event{0};   /* 0 nothing, 1 the disc went, 2 a disc is ready */
+   bool              g_watch_thread = false;
+
+   void watch_loop()
+   {
+      bool present = true;   /* the game was started from a disc that was there */
+      int  ready_in_a_row = 0;
+      int  last_answer    = -1;
+      int  not_ready_in_a_row = 0;
+      drive_log("disc watch: thread started");
+      for (;;)
+      {
+         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+         if (!g_watch)
+         {
+            present        = true;
+            ready_in_a_row = 0;
+            not_ready_in_a_row = 0;
+            continue;
+         }
+         unsigned char cmd[6] = {0x00, 0, 0, 0, 0, 0}, sense[32] = {0};
+         const int not_ready = uwp_cdrom_command(0, nullptr, 0, cmd, sizeof(cmd), sense, sizeof(sense));
+         const int asc       = sense[12];
+         /* each change of the drive's answer, for looking into a swap that is not noticed */
+         if ((not_ready ? asc : 0x100) != last_answer)
+         {
+            last_answer = not_ready ? asc : 0x100;
+            drive_log("disc watch: drive says %s (sense %02x, code %d)", not_ready ? "not ready" : "ready", asc, not_ready);
+         }
+         if (!not_ready)
+         {
+            not_ready_in_a_row = 0;
+            /* ready twice in a row: the drive has finished spinning up and reading the new disc */
+            if (!present && ++ready_in_a_row >= 2)
+            {
+               present = true;
+               drive_log("disc watch: a disc is ready");
+               g_media_event = 2;
+            }
+            continue;
+         }
+         ready_in_a_row = 0;
+         /* 3A: no disc. Other answers (28 "the disc changed", 04 "spinning up") also come right after the game
+          * starts, so one of them alone is not taken as a swap. The Series X drive gives no sense data at all
+          * (sense 00 for 14 s while the user swapped discs, 2026-10-17): "not ready" for 3 checks in a row is a
+          * swap too. */
+         not_ready_in_a_row++;
+         if (present && (asc == 0x3A || not_ready_in_a_row >= 3))
+         {
+            present = false;
+            drive_log("disc watch: the disc went (sense %02x, not ready %d s)", asc, not_ready_in_a_row);
+            g_media_event = 1;
+         }
+      }
+   }
+}
+
+extern "C" void uwp_cdrom_watch(int on)
+{
+   drive_log(on ? "disc watch: on (a game from the drive)" : "disc watch: off");
+   if (on && !g_watch_thread)
+   {
+      g_watch_thread = true;
+      std::thread(watch_loop).detach();
+   }
+   g_media_event = 0;
+   g_watch       = on != 0;
+}
+
+extern "C" int uwp_cdrom_media_event(void)
+{
+   return g_media_event.exchange(0);
 }

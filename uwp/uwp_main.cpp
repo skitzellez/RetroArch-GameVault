@@ -56,8 +56,69 @@ extern "C" void retroarch_smb_init(void);
 #include "../verbosity.h"
 #include "../content.h"
 #include "../tasks/task_content.h"
+#ifdef HAVE_NETWORKING
+/* netplay.h itself brings in the socket headers, whose in_addr names clash with this file's own */
+#include "../network/netplay/netplay_defines.h"
+extern "C" bool netplay_driver_ctl(enum rarch_netplay_ctl_state state, void *data);
+#endif
 #include "uwp_func.h"
 #include "uwp_async.h"
+#include "../runloop.h"
+#include "../disk_control_interface.h"
+
+extern "C" void uwp_cdrom_watch(int on);
+extern "C" int uwp_cdrom_media_event(void);
+
+/* Game Vault: a game from the console's drive changes discs when the player swaps the disc - no menu. The
+ * drive is watched (uwp_cdrom.cpp); the disc going opens the core's virtual lid, the next disc being ready
+ * closes it again (at least 1.5 s later, so the game sees the lid open as on the real console). Runs on the
+ * main loop's thread, as the core's disc control must. */
+static void DiscSwapTick(void)
+{
+   static bool      watching  = false;
+   static ULONGLONG insert_at = 0;
+   const char *content = path_get(RARCH_PATH_CONTENT);
+   bool from_drive     = content && strncmp(content, "cdrom://", 8) == 0;
+   if (from_drive != watching)
+   {
+      RARCH_LOG("[Game Vault] Disc watch %s (content \"%s\").\n", from_drive ? "on" : "off", content ? content : "");
+      uwp_cdrom_watch(from_drive ? 1 : 0);
+      watching  = from_drive;
+      insert_at = 0;
+   }
+   if (!from_drive)
+      return;
+   disk_control_interface_t *dc = &runloop_state_get_ptr()->system.disk_control;
+   const int ev = uwp_cdrom_media_event();
+   if (!disk_control_enabled(dc))
+   {
+      static bool told = false;
+      if (ev && !told)
+      {
+         told = true;
+         RARCH_LOG("[Game Vault] Disc swap seen, but this core has no disc control.\n");
+      }
+      return;
+   }
+   if (ev)
+   {
+      if (!disk_control_get_eject_state(dc))
+      {
+         disk_control_set_eject_state(dc, true, false);
+         RARCH_LOG("[Game Vault] Disc taken out: virtual lid open.\n");
+      }
+      insert_at = ev == 2 ? GetTickCount64() + 1500 : 0;
+   }
+   if (insert_at && GetTickCount64() >= insert_at)
+   {
+      insert_at = 0;
+      if (disk_control_get_eject_state(dc))
+      {
+         disk_control_set_eject_state(dc, false, false);
+         RARCH_LOG("[Game Vault] New disc in the drive: virtual lid closed.\n");
+      }
+   }
+}
 #include <compat/strl.h>
 
 using namespace RetroArchUWP;
@@ -369,6 +430,8 @@ void App::Run()
 
       task_queue_check();
 
+      DiscSwapTick();
+
       if (!x)
       {
          /* HACK: I have no idea why is this necessary but
@@ -424,6 +487,11 @@ void App::Uninitialize()
  * at it. A game started without "home" uses RetroArch's own folders again, so a stick that is no longer plugged
  * in is never looked for. */
 static std::string s_home;
+/* Game Vault's Online tab: a game started to host or join a netplay room. The link's cmd carries RetroArch's own
+ * --host, or --connect <address> --port <n> [--mitm-session <id>], and --nick <name>. "relay" (nyc, madrid,
+ * saopaulo, singapore) makes a hosted room go through that RetroArch relay server: a console cannot open a port on
+ * the player's router. */
+static std::string s_relay;
 /* Game Vault: a game on a PC's shared folder or a NAS comes as "smb://<server>/<share>/<path>" and is read straight
  * from there (RetroArch's own SMB client, libretro-common/vfs/vfs_implementation_smb.c) instead of being copied to
  * the console first. The sign-in comes as "netcred": a one-time file in the folder only Game Vault and its
@@ -695,6 +763,26 @@ static void HomeBeforeStart(std::vector<std::string> *args)
          text += std::string(kHomeFolders[i][0]) + " = \"" + want[i] + "\"\n";
    if (!fps.empty())
       text += "video_fps_show = \"" + fps + "\"\n";
+   if (!s_relay.empty())   /* a room hosted from Game Vault's Online tab */
+      text += "netplay_use_mitm_server = \"true\"\nnetplay_mitm_server = \"" + s_relay + "\"\n"
+              "netplay_public_announce = \"true\"\n";
+   /* The menu's pictures and fonts (assets\ozone: the selection bar, the icons) come with this package. A console
+    * never had them in RetroArch's own folder, so the menu showed no selection at all. The package's copy is used
+    * whenever the folder set in the settings lacks them (its path changes with each update, hence every start). */
+   {
+      std::string packaged = winrt::to_string(winrt::Windows::ApplicationModel::Package::Current()
+            .InstalledLocation().Path()) + "\\assets";
+      std::string set      = FolderOf(CfgValue(cfg, "assets_directory"), "assets");
+      WIN32_FILE_ATTRIBUTE_DATA d;
+      if (!GetFileAttributesExFromAppW(winrt::to_hstring(set + "\\ozone\\png\\cursor_border.png").c_str(),
+               GetFileExInfoStandard, &d) &&
+          GetFileAttributesExFromAppW(winrt::to_hstring(packaged + "\\ozone\\png\\cursor_border.png").c_str(),
+               GetFileExInfoStandard, &d))
+      {
+         text += "assets_directory = \"" + packaged + "\"\n";
+         RARCH_LOG("[Game Vault] Menu pictures from the package: %s\n", packaged.c_str());
+      }
+   }
    /* RetroArch's log of each session goes to the drive too (logs\retroarch.log), where a player can pick
     * it up for a problem report */
    if (!s_home.empty())
@@ -775,6 +863,54 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
       if (core && content)
       {
          HomeWhileRunning();
+#ifdef HAVE_NETWORKING
+         /* Game Vault's Online tab (see s_relay): what RetroArch's own lobby does before it loads a room's game.
+          * A game without --host / --connect ends any room the last one had. */
+         {
+            std::string connect, port, session, nick;
+            bool host = false;
+            for (size_t i = 0; i < argvTmp.size(); i++)
+            {
+               const std::string &a = argvTmp[i];
+               const char *next     = i + 1 < argvTmp.size() ? argvTmp[i + 1].c_str() : "";
+               if (a == "--host")
+                  host = true;
+               else if (a == "--connect")
+                  connect = next;
+               else if (a == "--port")
+                  port = next;
+               else if (a == "--mitm-session")
+                  session = next;
+               else if (a == "--nick")
+                  nick = next;
+            }
+            settings_t *settings = config_get_ptr();
+            command_event(CMD_EVENT_NETPLAY_DEINIT, NULL);
+            netplay_driver_ctl(RARCH_NETPLAY_CTL_DISABLE, NULL);
+            if (!nick.empty())
+               configuration_set_string(settings, settings->paths.username, nick.c_str());
+            if (host)
+            {
+               if (!s_relay.empty())
+               {
+                  configuration_set_bool(settings, settings->bools.netplay_use_mitm_server, true);
+                  configuration_set_string(settings, settings->arrays.netplay_mitm_server, s_relay.c_str());
+                  configuration_set_bool(settings, settings->bools.netplay_public_announce, true);
+               }
+               netplay_driver_ctl(RARCH_NETPLAY_CTL_ENABLE_SERVER, NULL);
+               RARCH_LOG("[Game Vault] Hosting a room (relay %s)\n", s_relay.empty() ? "none" : s_relay.c_str());
+            }
+            else if (!connect.empty())
+            {
+               std::string hostname = connect + "|" + (port.empty() ? "55435" : port);
+               if (!session.empty())
+                  hostname += "|" + session;
+               netplay_driver_ctl(RARCH_NETPLAY_CTL_ENABLE_CLIENT, NULL);
+               command_event(CMD_EVENT_NETPLAY_INIT_DIRECT_DEFERRED, (void*)hostname.c_str());
+               RARCH_LOG("[Game Vault] Joining a room at %s\n", hostname.c_str());
+            }
+         }
+#endif
          if (strncmp(content, "smb://", 6) == 0)
             retroarch_smb_init();   /* the sign-in of the share this game is on */
          content_ctx_info_t content_info = {0};
@@ -1123,7 +1259,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
    if (args.Kind() == ActivationKind::Protocol)
    {
       unsigned i;
-      std::string home;
+      std::string home, relay;
       bool fps = false;
       ProtocolActivatedEventArgs protocolArgs = args.as<ProtocolActivatedEventArgs>();
       WwwFormUrlDecoder query = protocolArgs.Uri().QueryParsed();
@@ -1162,10 +1298,17 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             fps = arg.Value() == L"1";
          else if (arg.Name() == L"netcred")
             s_netcred_file = winrt::to_string(arg.Value());
+         else if (arg.Name() == L"relay")
+            relay = winrt::to_string(arg.Value());
       }
       ReadNetCred();
       s_home = home;
       s_fps  = fps;
+      /* only for this start; a server name is lower-case letters only (it goes into a settings file) */
+      bool letters = relay.size() <= 32;
+      for (char c : relay)
+         letters = letters && c >= 'a' && c <= 'z';
+      s_relay = letters ? relay : std::string();
    }
 
    if (!m_initialized)
