@@ -129,6 +129,9 @@ public final class PlayActivity extends Activity
       Intent in   = getIntent();
       String rom  = in.getStringExtra("ROM");
       String core = in.getStringExtra("CORE");
+      /* a core's plain name only: other apps can open this door too, and "../" would load code from elsewhere */
+      if (core != null && !core.matches("[a-z0-9_]{1,64}"))
+         core = null;
       File cores  = linkCores();
       File cfg    = firstConfig();
       systemFiles(core);
