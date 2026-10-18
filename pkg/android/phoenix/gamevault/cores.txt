@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Skitzelles - part of Game Vault, https://github.com/skitzellez/xbox-game-vault
+# The cores built into RetroArch for Game Vault (Android), one per line, as named on the libretro buildbot
+# (<name>_libretro_android.so). Game Vault for Android's Systems.kt picks from these. Sources: see CORES.md.
+pcsx2
+dolphin
+citra
+pcsx_rearmed
+ppsspp
+flycast
+yabasanshiro
+genesis_plus_gx
+melondsds
+mupen64plus_next_gles3
+mgba
+snes9x
+mesen
+gambatte
+mednafen_vb
+pokemini
+picodrive
+mednafen_pce_fast
+fbneo
+mednafen_ngp
+mednafen_wswan
+stella
+a5200
+prosystem
+handy
+virtualjaguar
+hatari
+gearcoleco
+freeintv
+vecx
+freechaf
+potator
+bluemsx
+vice_x64sc
+puae
+fuse
+tic80
+uzem
+gw
+dosbox_pure

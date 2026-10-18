@@ -86,6 +86,19 @@ android {
         abiFilters 'armeabi-v7a', 'x86'
       }
     }
+    // Game Vault build (Skitzelles): its own app next to any RetroArch, the cores built in, started by
+    // Game Vault for Android through com.retroarch.browser.gamevault.PlayActivity (gamevault/).
+    gamevault {
+      applicationId 'com.skitzelles.gamevault.retroarch'
+      versionName "1.22.2.25"
+      resValue "string", "app_name", "RetroArch for Game Vault"
+      buildConfigField "boolean", "PLAY_STORE_BUILD", "false"
+
+      dimension "variant"
+      ndk {
+        abiFilters 'arm64-v8a'
+      }
+    }
     playStoreNormal {
       minSdkVersion 21
       targetSdkVersion 36
@@ -149,6 +162,13 @@ android {
     }
     ra32 {
       java.srcDirs += ['../play-core-stub']
+    }
+    gamevault {
+      manifest.srcFile 'gamevault/AndroidManifest.xml'
+      java.srcDirs += ['../play-core-stub', 'gamevault/src']
+      jniLibs.srcDirs += ['gamevault/jniLibs']
+      assets.srcDirs += ['gamevault/assets']
+      res.srcDirs = ['res', 'res64', 'gamevault/res']
     }
     playStoreNormal {
       java.srcDirs += ['../play-core-impl']
