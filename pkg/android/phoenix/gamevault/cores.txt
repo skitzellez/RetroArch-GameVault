@@ -7,6 +7,7 @@ citra
 pcsx_rearmed
 ppsspp
 flycast
+mednafen_saturn
 yabasanshiro
 genesis_plus_gx
 melondsds

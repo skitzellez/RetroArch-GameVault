@@ -15,6 +15,7 @@ RetroArch 1.22.2 APK; the system files for Dolphin, PPSSPP, LRPS2 and blueMSX co
 | PCSX-ReARMed | `pcsx_rearmed_libretro_android.so` | GPLv2 | https://github.com/libretro/pcsx_rearmed |
 | PPSSPP | `ppsspp_libretro_android.so` | GPLv2 | https://github.com/hrydgard/ppsspp |
 | Flycast | `flycast_libretro_android.so` | GPLv2 | https://github.com/flyinghead/flycast |
+| Beetle Saturn | `mednafen_saturn_libretro_android.so` | GPLv2 | https://github.com/libretro/beetle-saturn-libretro |
 | YabaSanshiro | `yabasanshiro_libretro_android.so` | GPLv2 | https://github.com/libretro/yabause (branch yabasanshiro) |
 | Genesis Plus GX | `genesis_plus_gx_libretro_android.so` | Non-commercial | https://github.com/libretro/Genesis-Plus-GX |
 | melonDS DS | `melondsds_libretro_android.so` | GPLv3+ | https://github.com/JesseTG/melonds-ds |
