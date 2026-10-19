@@ -20,6 +20,7 @@
 #include <winrt/Windows.Devices.Input.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Gaming.Input.h>
 #include <winrt/Windows.Graphics.Display.h>
 #include <winrt/Windows.Graphics.Display.Core.h>
 #include <winrt/Windows.Storage.h>
@@ -66,6 +67,8 @@ extern "C" bool netplay_driver_ctl(enum rarch_netplay_ctl_state state, void *dat
 #include "uwp_async.h"
 #include "../runloop.h"
 #include "../disk_control_interface.h"
+#include "../tasks/tasks_internal.h"
+#include "../gfx/video_driver.h"
 
 extern "C" void uwp_cdrom_watch(int on);
 extern "C" int uwp_cdrom_media_event(void);
@@ -74,6 +77,7 @@ static void ResumeTick(void);
 static void ResumeForget(void);
 static void ResumeLeft(bool left);
 static void ControlsTick(void);
+static void TitleShotTick(void);
 
 /* Game Vault: a game from the console's drive changes discs when the player swaps the disc - no menu. The
  * drive is watched (uwp_cdrom.cpp); the disc going opens the core's virtual lid, the next disc being ready
@@ -441,6 +445,8 @@ void App::Run()
       ResumeTick();
 
       ControlsTick();
+
+      TitleShotTick();
 
       if (!x)
       {
@@ -923,6 +929,69 @@ static void ControlsTick(void)
       CloseHandle(h);
    }
    RARCH_LOG("[Game Vault] Controls written for %s.\n", game.c_str());
+}
+
+/* Game Vault: box art for a game nobody has a box for (a ROM hack, a homebrew, a translation). Game Vault adds
+ * "titleshot=1" to the link when the game has no picture; then the screen is kept the moment the player first
+ * presses Start in the first 5 minutes: that is almost always the title screen ("PRESS START"). It goes to
+ * "<home>\box art\title screens\<game file name>.png", which Game Vault shows as the game's picture until the
+ * player gives it a better one. Once per game start; the picture is taken before the press reaches the game. */
+static bool s_titleshot;   /* titleshot=1 in the link */
+
+static void TitleShotTick(void)
+{
+   static std::string game;
+   static ULONGLONG started = 0;
+   static bool held = true, done = false;
+   if (!s_titleshot || s_home.empty())
+      return;
+   const char *content = path_get(RARCH_PATH_CONTENT);
+   content_state_t *p_content = content_state_get_ptr();
+   if (!content || !*content || !(p_content->flags & CONTENT_ST_FLAG_IS_INITED))
+      return;
+   ULONGLONG now = GetTickCount64();
+   if (game != content)
+   {
+      game    = content;
+      started = now;
+      held    = true;   /* a Start still held from Game Vault's own screen does not count */
+      done    = false;
+   }
+   if (done || now - started > 5 * 60 * 1000)
+      return;
+   bool start = false;
+   try
+   {
+      for (auto const &pad : winrt::Windows::Gaming::Input::Gamepad::Gamepads())
+         if ((pad.GetCurrentReading().Buttons & winrt::Windows::Gaming::Input::GamepadButtons::Menu) ==
+               winrt::Windows::Gaming::Input::GamepadButtons::Menu)
+            start = true;
+   }
+   catch (...)
+   {
+   }
+   if (!start)
+   {
+      held = false;
+      return;
+   }
+   if (held || now - started < 3000)
+      return;
+   done = true;
+   std::string dir = s_home + "\\box art", name = path_basename(content);
+   if (name.rfind('.') != std::string::npos)
+      name.resize(name.rfind('.'));
+   CreateDirectoryFromAppW(winrt::to_hstring(dir).c_str(), NULL);
+   dir += "\\title screens";
+   CreateDirectoryFromAppW(winrt::to_hstring(dir).c_str(), NULL);
+   std::string base = dir + "\\" + name;
+#ifdef HAVE_SCREENSHOTS
+   /* "savestate" style: silent, written as <base>.png */
+   if (take_screenshot(NULL, base.c_str(), true, video_driver_cached_frame_is_hw_render(), false, true))
+      RARCH_LOG("[Game Vault] Title screen kept as box art for %s.\n", name.c_str());
+   else
+#endif
+      RARCH_LOG("[Game Vault] Title screen could not be kept for %s.\n", name.c_str());
 }
 
 /* The three folders to use for this game: in "home", or RetroArch's own when the last game had set "home".
@@ -1619,6 +1688,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       unsigned i;
       std::string home, relay;
       s_resume_load = false;   /* resume=1 below, for this start only */
+      s_titleshot   = false;   /* titleshot=1 too */
       bool fps = false;
       ProtocolActivatedEventArgs protocolArgs = args.as<ProtocolActivatedEventArgs>();
       WwwFormUrlDecoder query = protocolArgs.Uri().QueryParsed();
@@ -1662,6 +1732,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             relay = winrt::to_string(arg.Value());
          else if (arg.Name() == L"resume")
             s_resume_load = arg.Value() == L"1";
+         else if (arg.Name() == L"titleshot")
+            s_titleshot = arg.Value() == L"1";
       }
       ReadNetCred();
       s_home = home;
