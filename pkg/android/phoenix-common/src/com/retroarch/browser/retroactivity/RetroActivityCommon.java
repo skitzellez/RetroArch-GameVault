@@ -1795,6 +1795,8 @@ public class RetroActivityCommon extends NativeActivity
    */
   private void cleanupSymlinks() {
     if(Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return;
+    // Game Vault: only the Play Store build makes these links (updateSymlinks); the other builds keep their own
+    if(!isPlayStoreBuild()) return;
 
     File[] files = new File(getCorePath()).listFiles();
     for(int i = 0; i < files.length; i++) {

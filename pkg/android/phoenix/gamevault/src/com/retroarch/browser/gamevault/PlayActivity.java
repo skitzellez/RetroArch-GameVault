@@ -141,7 +141,11 @@ public final class PlayActivity extends Activity
          i.putExtras(in.getExtras());       /* REFRESH, QUITFOCUS ... pass through */
       i.removeExtra("CORE");
       if (core != null)
-         i.putExtra("LIBRETRO", new File(cores, core + "_libretro_android.so").getPath());
+      {
+         /* the core itself in the app's native folder; the link in cores/ only where that is missing */
+         File lib = new File(getApplicationInfo().nativeLibraryDir, "lib" + core + "_libretro_android.so");
+         i.putExtra("LIBRETRO", (lib.isFile() ? lib : new File(cores, core + "_libretro_android.so")).getPath());
+      }
       if (rom != null)
          i.putExtra("ROM", rom);
       if (cfg != null)
@@ -153,20 +157,25 @@ public final class PlayActivity extends Activity
    }
 
    /* lib<name>_libretro_android.so from the app's native folder -> <data>/cores/<name>_libretro_android.so,
-    * RetroArch's own cores folder, so its menu (Load Core) lists them too. A link costs nothing; a copy is the
-    * fallback where links are refused. */
+    * RetroArch's own cores folder, so its menu (Load Core) lists them too. A link costs nothing; games
+    * never depend on these links (start() passes the core's own path):
+    * RetroActivityCommon.cleanupSymlinks() used to delete them at every start, which put every game on a black
+    * screen. The names come from the app's own APK. */
    private File linkCores()
    {
       File cores = new File(getApplicationInfo().dataDir, "cores");
       cores.mkdirs();
-      File[] libs = new File(getApplicationInfo().nativeLibraryDir).listFiles();
-      if (libs == null)
-         return cores;
-      for (File lib : libs)
+      String dir = getApplicationInfo().nativeLibraryDir;
+      java.util.Set<String> names = coreLibs();
+      int linked = 0, missing = 0;
+      for (String n : names)
       {
-         String n = lib.getName();
-         if (!n.startsWith("lib") || !n.endsWith("_libretro_android.so"))
+         File lib = new File(dir, n);
+         if (!lib.isFile())
+         {
+            missing++;
             continue;
+         }
          File dst = new File(cores, n.substring(3));
          try
          {
@@ -181,14 +190,41 @@ public final class PlayActivity extends Activity
          try
          {
             Os.symlink(lib.getPath(), dst.getPath());
+            linked++;
          }
          catch (Exception e)
          {
-            Log.w(TAG, "link " + n + ": " + e + ", copying");
-            copy(lib, dst);
+            /* RetroArch's Load Core menu misses this core; games still play */
+            if (missing++ == 0)
+               Log.w(TAG, "link " + n + ": " + e);
          }
       }
+      Log.i(TAG, "cores: " + names.size() + " in the app, " + linked + " linked, " + missing + " not linked");
       return cores;
+   }
+
+   /* lib<name>_libretro_android.so file names inside the APK (lib/<abi>/), read from its table of contents */
+   private java.util.Set<String> coreLibs()
+   {
+      java.util.Set<String> out = new java.util.TreeSet<>();
+      try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(getApplicationInfo().sourceDir))
+      {
+         java.util.Enumeration<? extends ZipEntry> e = apk.entries();
+         while (e.hasMoreElements())
+         {
+            String n = e.nextElement().getName();
+            if (!n.startsWith("lib/"))
+               continue;
+            n = n.substring(n.lastIndexOf('/') + 1);
+            if (n.startsWith("lib") && n.endsWith("_libretro_android.so"))
+               out.add(n);
+         }
+      }
+      catch (IOException e)
+      {
+         Log.w(TAG, "core list: " + e);
+      }
+      return out;
    }
 
    private File firstConfig()
@@ -267,21 +303,6 @@ public final class PlayActivity extends Activity
                   o.write(b, 0, n);
             }
          }
-      }
-   }
-
-   private static void copy(File from, File to)
-   {
-      try (java.io.InputStream in = new java.io.FileInputStream(from); OutputStream o = new FileOutputStream(to))
-      {
-         byte[] b = new byte[1 << 16];
-         int n;
-         while ((n = in.read(b)) > 0)
-            o.write(b, 0, n);
-      }
-      catch (IOException e)
-      {
-         Log.w(TAG, "copy " + from + ": " + e);
       }
    }
 }
