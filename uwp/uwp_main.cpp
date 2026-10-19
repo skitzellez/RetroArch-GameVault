@@ -39,6 +39,7 @@
 #include <lists/string_list.h>
 #include <queues/task_queue.h>
 #include <retro_timers.h>
+#include <file/file_path.h>
 #include <sstream>
 #include <iomanip>
 
@@ -68,6 +69,10 @@ extern "C" bool netplay_driver_ctl(enum rarch_netplay_ctl_state state, void *dat
 
 extern "C" void uwp_cdrom_watch(int on);
 extern "C" int uwp_cdrom_media_event(void);
+
+static void ResumeTick(void);
+static void ResumeForget(void);
+static void ControlsTick(void);
 
 /* Game Vault: a game from the console's drive changes discs when the player swaps the disc - no menu. The
  * drive is watched (uwp_cdrom.cpp); the disc going opens the core's virtual lid, the next disc being ready
@@ -432,6 +437,10 @@ void App::Run()
 
       DiscSwapTick();
 
+      ResumeTick();
+
+      ControlsTick();
+
       if (!x)
       {
          /* HACK: I have no idea why is this necessary but
@@ -453,6 +462,7 @@ void App::Run()
  * class is torn down while the app is in the foreground. */
 void App::Uninitialize()
 {
+   ResumeForget();   /* quit the normal way: nothing to take the player back to */
    main_exit(NULL);
 
    /* If this instance of RetroArch was started from another app/frontend
@@ -685,6 +695,194 @@ static std::string ReadSmallFile(const std::string &path)
       text.append(buf, n);
    CloseHandle(h);
    return text;
+}
+
+/* Game Vault "never lose a run": while a game plays, a save state is written in the background every 2 minutes
+ * (content_save_state_quiet, no message on screen) into "<home>\resume", two files in turn, so the last one that
+ * was finished is always whole. "resume\retroarch.txt" then names the game, the core and that state. RetroArch
+ * deletes them when it quits the normal way or the game is closed; so when Game Vault finds the file while
+ * RetroArch is not running, the emulator stopped (a crash, or the console closed it), and Game Vault starts the
+ * game again with "resume=1" in the link: the state is loaded a moment after the game has started.
+ * Not during online play (both sides must stay the same), and not for cores without save states. */
+static bool s_resume_load;   /* resume=1 in the link: load the resume state once the game runs */
+
+static std::string ResumeDir(void)
+{
+   return s_home + "\\resume";
+}
+
+static void ResumeForget(void)
+{
+   if (s_home.empty())
+      return;
+   for (const char *name : { "\\retroarch.txt", "\\retroarch-1.state", "\\retroarch-2.state" })
+      DeleteFileFromAppW(winrt::to_hstring(ResumeDir() + name).c_str());
+}
+
+static void ResumeTick(void)
+{
+   static std::string game;          /* the game the resume files are for */
+   static ULONGLONG started = 0, saved = 0;
+   static int slot = 0;              /* the file being written (1 or 2), 0 = none */
+   static bool told = false;
+   if (s_home.empty())
+      return;
+   const char *content = path_get(RARCH_PATH_CONTENT);
+   content_state_t *p_content = content_state_get_ptr();
+   bool running = content && *content && (p_content->flags & CONTENT_ST_FLAG_IS_INITED);
+   ULONGLONG now = GetTickCount64();
+   if (!running || game != content)
+   {
+      /* the game was closed or another one started; or a new start that is not a resume, whose old files
+       * would point Game Vault at a game left long ago */
+      if (!game.empty() || (running && !s_resume_load))
+         ResumeForget();
+      game    = running ? content : "";
+      started = now;
+      saved   = 0;
+      slot    = 0;
+      return;
+   }
+   if (s_resume_load && now - started > 1500)
+   {
+      s_resume_load = false;
+      std::string info = ReadSmallFile(ResumeDir() + "\\retroarch.txt"), want = "\nstate=", state;
+      size_t at = ("\n" + info).find(want);
+      if (at != std::string::npos)
+      {
+         size_t end = info.find_first_of("\r\n", at + want.size() - 1);
+         state = info.substr(at + want.size() - 1, end == std::string::npos ? std::string::npos : end - (at + want.size() - 1));
+      }
+      bool ours = state == ResumeDir() + "\\retroarch-1.state" || state == ResumeDir() + "\\retroarch-2.state";
+      if (ours && info.find("game=" + game + "\n") != std::string::npos && content_load_state(state.c_str(), false, false))
+         RARCH_LOG("[Game Vault] Resume: back where the game was (%s).\n", state.c_str());
+      else
+         RARCH_LOG("[Game Vault] Resume: no resume state for this game.\n");
+   }
+   /* the state being written is finished: from now on it is the one to go back to */
+   if (slot && !content_save_state_in_progress(NULL))
+   {
+      std::string state = ResumeDir() + "\\retroarch-" + std::to_string(slot) + ".state";
+      std::string text  = "game=" + game + "\ncore=" + std::string(path_get(RARCH_PATH_CORE)) + "\nstate=" + state +
+            "\nsaved=" + std::to_string((long long)time(NULL)) + "\n";
+      std::string info  = ResumeDir() + "\\retroarch.txt", part = info + ".new";
+      HANDLE h = CreateFile2FromAppW(winrt::to_hstring(part).c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
+      if (h != INVALID_HANDLE_VALUE)
+      {
+         DWORD n;
+         WriteFile(h, text.data(), (DWORD)text.size(), &n, NULL);
+         CloseHandle(h);
+         DeleteFileFromAppW(winrt::to_hstring(info).c_str());
+         MoveFileFromAppW(winrt::to_hstring(part).c_str(), winrt::to_hstring(info).c_str());
+      }
+      slot = 0;
+   }
+   if (slot || now - started < 60000 || (saved && now - saved < 120000))
+      return;
+   saved = now;   /* also when this time is skipped: the next try is 2 minutes on */
+   runloop_state_t *runloop_st = runloop_state_get_ptr();
+   if (runloop_st->flags & (RUNLOOP_FLAG_PAUSED | RUNLOOP_FLAG_IDLE))
+      return;
+#ifdef HAVE_NETWORKING
+   if (netplay_driver_ctl(RARCH_NETPLAY_CTL_IS_ENABLED, NULL))
+      return;
+#endif
+   CreateDirectoryFromAppW(winrt::to_hstring(ResumeDir()).c_str(), NULL);
+   /* the other file than the one retroarch.txt names now */
+   std::string info = ReadSmallFile(ResumeDir() + "\\retroarch.txt");
+   int next = info.find("retroarch-1.state") != std::string::npos ? 2 : 1;
+   std::string state = ResumeDir() + "\\retroarch-" + std::to_string(next) + ".state";
+   if (content_save_state_quiet(state.c_str()))
+      slot = next;
+   else if (!told)
+   {
+      told = true;
+      RARCH_LOG("[Game Vault] Resume: this core has no save states; no resume point.\n");
+   }
+}
+
+/* Game Vault shows what each button of the Xbox pad does in a game (its details, "Controls"): the names the core
+ * itself gives its buttons ("Cross", "C", "Z"...), after the player's own remapping. Written a few seconds after a
+ * game starts, as "<home>\controls\<game file name>.txt" and "<home>\controls\core <core name>.txt" (for games of
+ * that core not played yet), one "<Xbox button>=<what it does>" a line. */
+static void ControlsTick(void)
+{
+   static std::string done;      /* the game written for */
+   static ULONGLONG since = 0;
+   if (s_home.empty())
+      return;
+   const char *content = path_get(RARCH_PATH_CONTENT);
+   content_state_t *p_content = content_state_get_ptr();
+   if (!content || !*content || !(p_content->flags & CONTENT_ST_FLAG_IS_INITED))
+   {
+      done.clear();
+      since = 0;
+      return;
+   }
+   if (done == content)
+      return;
+   ULONGLONG now = GetTickCount64();
+   if (!since)
+      since = now;
+   if (now - since < 4000)   /* the core says its buttons as the game starts */
+      return;
+   done  = content;
+   since = 0;
+   /* the RetroPad button each Xbox button is, in RetroArch's numbering (B is the bottom one, Xbox A) */
+   static const struct { unsigned id; const char *xbox; } pad[] = {
+      { RETRO_DEVICE_ID_JOYPAD_B, "A" }, { RETRO_DEVICE_ID_JOYPAD_A, "B" }, { RETRO_DEVICE_ID_JOYPAD_Y, "X" },
+      { RETRO_DEVICE_ID_JOYPAD_X, "Y" }, { RETRO_DEVICE_ID_JOYPAD_L, "LB" }, { RETRO_DEVICE_ID_JOYPAD_R, "RB" },
+      { RETRO_DEVICE_ID_JOYPAD_L2, "LT" }, { RETRO_DEVICE_ID_JOYPAD_R2, "RT" }, { RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { RETRO_DEVICE_ID_JOYPAD_R3, "R3" }, { RETRO_DEVICE_ID_JOYPAD_UP, "D-pad" },
+      { RETRO_DEVICE_ID_JOYPAD_SELECT, "View" }, { RETRO_DEVICE_ID_JOYPAD_START, "Menu" },
+      { RARCH_ANALOG_LEFT_X_PLUS, "Left stick" }, { RARCH_ANALOG_RIGHT_X_PLUS, "Right stick" } };
+   rarch_system_info_t *sys = &runloop_state_get_ptr()->system;
+   settings_t *settings     = config_get_ptr();
+   std::string text;
+   for (const auto &b : pad)
+   {
+      unsigned target = b.id;
+      if (b.id < RARCH_FIRST_CUSTOM_BIND)   /* the player's remap: what this button sends now */
+      {
+         target = settings->uints.input_remap_ids[0][b.id];
+         if (target >= RARCH_FIRST_CUSTOM_BIND)
+            continue;   /* turned off, or sent to a stick */
+      }
+      const char *what = sys->input_desc_btn[0][target];
+      if (!what || !*what)
+         continue;
+      std::string name = what;
+      if (b.id == RETRO_DEVICE_ID_JOYPAD_UP)
+      {
+         /* the four directions as one line: "D-Pad Up" -> "D-Pad" */
+         size_t sp = name.rfind(' ');
+         if (sp != std::string::npos && sp > 0)
+            name.resize(sp);
+      }
+      for (char &c : name)   /* one line each */
+         if (c == '\n' || c == '\r' || c == '=')
+            c = ' ';
+      text += std::string(b.xbox) + "=" + name + "\n";
+   }
+   if (text.empty())
+      return;
+   std::string dir = s_home + "\\controls";
+   CreateDirectoryFromAppW(winrt::to_hstring(dir).c_str(), NULL);
+   std::string game = path_basename(content), core = path_basename(path_get(RARCH_PATH_CORE));
+   if (game.rfind('.') != std::string::npos)
+      game.resize(game.rfind('.'));
+   if (core.rfind('.') != std::string::npos)
+      core.resize(core.rfind('.'));
+   for (const std::string &file : { dir + "\\" + game + ".txt", dir + "\\core " + core + ".txt" })
+   {
+      HANDLE h = CreateFile2FromAppW(winrt::to_hstring(file).c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
+      if (h == INVALID_HANDLE_VALUE)
+         continue;
+      DWORD n;
+      WriteFile(h, text.data(), (DWORD)text.size(), &n, NULL);
+      CloseHandle(h);
+   }
+   RARCH_LOG("[Game Vault] Controls written for %s.\n", game.c_str());
 }
 
 /* The three folders to use for this game: in "home", or RetroArch's own when the last game had set "home".
@@ -928,6 +1126,17 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
       return;
    }
    m_initialized = true;
+
+   /* Game Vault: the memory this app may use. Dev Home starts it with 1 GB on App type "App" (about 5 GB on
+    * "Game"); bigger systems then run out and the console closes RetroArch, which looks like "it opens and closes".
+    * The setting cannot be changed from inside an app, so Game Vault is told on the way back and says how. */
+   {
+      uint64_t limit = winrt::Windows::System::MemoryManager::AppMemoryUsageLimit();
+      RARCH_LOG("[Game Vault] Memory limit %u MB (%s).\n", (unsigned)(limit >> 20),
+            limit < (2048ull << 20) ? "App type App" : "App type Game");
+      if (limit < (2048ull << 20) && m_launchOnExit == L"gamevault:")
+         m_launchOnExit = L"gamevault:?from=lowmem-retroarch";
+   }
 
    if (is_running_on_xbox())
    {
@@ -1275,8 +1484,9 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             CoreApplication::Exit();
          else if (arg.Name() == L"cmd")
          {
-            std::wstring wsValue(arg.Value().c_str());
-            std::string strValue(wsValue.begin(), wsValue.end());
+            /* UTF-8, as RetroArch's paths are: a plain wide-to-narrow copy broke game names with letters such as
+             * é, ü or ™ when started from a link (the menu opened them fine) */
+            std::string strValue = winrt::to_string(arg.Value());
             std::istringstream iss(strValue);
             std::string s;
 
@@ -1300,6 +1510,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             s_netcred_file = winrt::to_string(arg.Value());
          else if (arg.Name() == L"relay")
             relay = winrt::to_string(arg.Value());
+         else if (arg.Name() == L"resume")
+            s_resume_load = arg.Value() == L"1";
       }
       ReadNetCred();
       s_home = home;

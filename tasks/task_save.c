@@ -2227,6 +2227,21 @@ void set_save_state_disable_undo(bool disable)
    save_state_disable_undo = disable;
 }
 
+/* Game Vault: a save state written in the background with no message on screen, for the resume save Game
+ * Vault takes back to after the emulator stopped (uwp_main.cpp, ResumeTick). The state is taken here, on the
+ * main loop; the file is written by the task queue, so the game does not stop while the USB drive works. */
+bool content_save_state_quiet(const char *path)
+{
+   size_t _len;
+   void *data;
+   if (!core_info_current_supports_savestate() || core_serialize_size() == 0)
+      return false;
+   if (!(data = content_get_serialized_data(&_len)))
+      return false;
+   task_push_save_state(path, data, _len, true);
+   return true;
+}
+
 bool content_save_state_automatic(void)
 {
    time_t current_time;

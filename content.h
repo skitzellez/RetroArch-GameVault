@@ -54,6 +54,9 @@ bool content_load_state(const char* path, bool load_to_backup_buffer, bool autol
 /* Save a state from memory to disk. */
 bool content_save_state(const char *path, bool save_to_disk);
 
+/* Game Vault: a save state written in the background, with no message on screen. */
+bool content_save_state_quiet(const char *path);
+
 /* Automatically save a state if the interval has elapsed. */
 bool content_save_state_automatic(void);
 
