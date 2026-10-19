@@ -78,6 +78,10 @@ static void ResumeForget(void);
 static void ResumeLeft(bool left);
 static void ControlsTick(void);
 static void TitleShotTick(void);
+#ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
+static void GvPlayTick(void);     /* gv_play.inc: screen style, seats, Kid mode */
+static bool GvKeepResume(void);
+#endif
 
 /* Game Vault: a game from the console's drive changes discs when the player swaps the disc - no menu. The
  * drive is watched (uwp_cdrom.cpp); the disc going opens the core's virtual lid, the next disc being ready
@@ -448,6 +452,10 @@ void App::Run()
 
       TitleShotTick();
 
+#ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
+      GvPlayTick();
+#endif
+
       if (!x)
       {
          /* HACK: I have no idea why is this necessary but
@@ -469,7 +477,12 @@ void App::Run()
  * class is torn down while the app is in the foreground. */
 void App::Uninitialize()
 {
+#ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
+   if (!GvKeepResume())   /* Kid mode closed it: the game picks up there next time */
+      ResumeForget();   /* quit the normal way: nothing to take the player back to */
+#else
    ResumeForget();   /* quit the normal way: nothing to take the player back to */
+#endif
    main_exit(NULL);
 
    /* If this instance of RetroArch was started from another app/frontend
@@ -729,6 +742,10 @@ static std::string ReadSmallFile(const std::string &path)
    return text;
 }
 
+#ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
+#include "gv_play.inc"   /* Game Vault: screen style, Who's playing? seats, Kid mode's play time */
+#endif
+
 /* Game Vault "never lose a run": while a game plays, a save state is written in the background every 2 minutes
  * (content_save_state_quiet, no message on screen) into "<home>\resume", two files in turn, so the last one that
  * was finished is always whole. "resume\retroarch.txt" then names the game, the core and that state. RetroArch
@@ -846,8 +863,14 @@ static void ResumeTick(void)
       }
       slot = 0;
    }
+#ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
+   if (slot || (!s_gv_resume_now && (now - started < 60000 || (saved && now - saved < 120000))))
+      return;
+   s_gv_resume_now = false;   /* Kid mode asked for this save (gv_play.inc) */
+#else
    if (slot || now - started < 60000 || (saved && now - saved < 120000))
       return;
+#endif
    saved = now;   /* also when this time is skipped: the next try is 2 minutes on */
    runloop_state_t *runloop_st = runloop_state_get_ptr();
    if (runloop_st->flags & (RUNLOOP_FLAG_PAUSED | RUNLOOP_FLAG_IDLE))
@@ -1752,6 +1775,9 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       std::string home, relay;
       s_resume_load = false;   /* resume=1 below, for this start only */
       s_titleshot   = false;   /* titleshot=1 too */
+#ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
+      GvPlayReset();             /* style=, seats=, kidend= (gv_play.inc) */
+#endif
       bool fps = false, multitap = false;
       ProtocolActivatedEventArgs protocolArgs = args.as<ProtocolActivatedEventArgs>();
       WwwFormUrlDecoder query = protocolArgs.Uri().QueryParsed();
@@ -1799,6 +1825,10 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             s_resume_load = arg.Value() == L"1";
          else if (arg.Name() == L"titleshot")
             s_titleshot = arg.Value() == L"1";
+#ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
+         else
+            GvPlayArg(arg.Name(), arg.Value());
+#endif
       }
       ReadNetCred();
       s_home = home;
