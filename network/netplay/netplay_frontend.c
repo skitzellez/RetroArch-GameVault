@@ -131,6 +131,38 @@ static const char *gv_hangup_why = NULL;
 #define GV_HANGUP(netplay, connection, why) \
    do { gv_hangup_why = (why); netplay_hangup((netplay), (connection)); } while (0)
 
+/* Game Vault: a [Netplay] line for the log with the other players' names taken out (reports come to us; the screen
+ * still shows the names) */
+static void gv_log_unnamed(netplay_t *netplay, const char *msg)
+{
+   char out[512];
+   size_t i, n = 0;
+   const char *at = msg;
+   while (*at && n < sizeof(out) - 16)
+   {
+      size_t skip = 0;
+      for (i = 0; i < netplay->connections_size && !skip; i++)
+      {
+         const char *nick = netplay->connections[i].nick;
+         size_t len       = 0;
+         while (len < NETPLAY_NICK_LEN && nick[len])
+            len++;
+         if (len && !strncmp(at, nick, len))
+            skip = len;
+      }
+      if (skip)
+      {
+         memcpy(out + n, "a player", 8);
+         n  += 8;
+         at += skip;
+      }
+      else
+         out[n++] = *at++;
+   }
+   out[n] = '\0';
+   RARCH_LOG("[Netplay] %s\n", out);
+}
+
 #define REQUIRE_PROTOCOL_VERSION(connection, version) \
    if ((connection)->netplay_protocol >= (version))
 
@@ -1381,7 +1413,7 @@ static void netplay_handshake_ready(netplay_t *netplay,
             connection->nick);
    }
 
-   RARCH_LOG("[Netplay] %s\n", msg);
+   gv_log_unnamed(netplay, msg);
    /* Useful notification to the client in figuring out
       if a connection was successfully made before an error,
       but not as useful to the server.
@@ -4937,7 +4969,7 @@ static void netplay_announce_play_spectate(netplay_t *netplay,
       netplay_cmd_request_savestate(netplay);
 #endif
 
-   RARCH_LOG("[Netplay] %s\n", _msg);
+   gv_log_unnamed(netplay, _msg);
    runloop_msg_queue_push(_msg, strlen(_msg), 1, 180, false, NULL,
       MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_INFO);
 }
@@ -5358,7 +5390,7 @@ static void netplay_show_chat(netplay_t *netplay, const char *nick, const char *
 #pragma GCC diagnostic pop
 #endif
 
-   RARCH_LOG("[Netplay] %s\n", formatted_chat);
+   RARCH_LOG("[Netplay] Chat message (Game Vault: not written to the log)\n");
 
 #ifdef HAVE_GFX_WIDGETS
    if (gfx_widgets_ready())
@@ -6594,7 +6626,7 @@ static bool netplay_get_cmd(netplay_t *netplay,
             connection->flags     |= NETPLAY_CONN_FLAG_PAUSED;
             netplay->remote_paused = true;
 
-            RARCH_LOG("[Netplay] %s\n", msg);
+            gv_log_unnamed(netplay, msg);
             runloop_msg_queue_push(msg, _len, 1, 180, false, NULL,
                MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_INFO);
             break;
@@ -6997,7 +7029,8 @@ static void netplay_announce_nat_traversal(netplay_t *netplay,
                NI_NUMERICHOST | NI_NUMERICSERV))
             _len += snprintf(msg + _len, sizeof(msg) - _len, ": %s:%s", host, port);
 
-         RARCH_LOG("[Netplay] %s\n", msg);
+         RARCH_LOG("[Netplay] %s (Game Vault: address not written to the log)\n",
+               msg_hash_to_str(MSG_PUBLIC_ADDRESS));
          runloop_msg_queue_push(msg, _len, 1, 180, false, NULL,
             MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_INFO);
       }
