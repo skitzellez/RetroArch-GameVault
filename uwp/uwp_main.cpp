@@ -1380,14 +1380,7 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
          configuration_set_int(settings,
                settings->uints.video_fullscreen_y,
                height);
-         /* Game Vault: the size is never saved on UWP (settings_def_video_fullscreen.h), so it is 0 at every
-          * start and this rebuilt the video right after a game sent by Game Vault had loaded. SwanStation (PS1)
-          * does not survive that: "Switching to software renderer", native resolution, no HD. A size of 0
-          * already means the display's size, so with a game running the new size is only noted. */
-         if (!(p_content->flags & CONTENT_ST_FLAG_IS_INITED))
-            reset = true; /* Reset needed */
-         else
-            RARCH_LOG("[Game Vault] Display %dx%d noted, video not rebuilt (a game is running).\n", width, height);
+         reset = true; /* Reset needed */
       }
       if (reset) /* Restart driver */
          command_event(CMD_EVENT_REINIT, NULL);
