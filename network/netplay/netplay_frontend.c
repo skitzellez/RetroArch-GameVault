@@ -125,6 +125,12 @@
    if ((connection)->ping < 0 || ping < (connection)->ping) \
       (connection)->ping = ping;
 
+/* Game Vault: why the next netplay_hangup happens, for the log line of that drop, so that a player's report says why
+ * someone was dropped and not only that they were. Set right before the hang-up; NULL: the connection broke. */
+static const char *gv_hangup_why = NULL;
+#define GV_HANGUP(netplay, connection, why) \
+   do { gv_hangup_why = (why); netplay_hangup((netplay), (connection)); } while (0)
+
 #define REQUIRE_PROTOCOL_VERSION(connection, version) \
    if ((connection)->netplay_protocol >= (version))
 
@@ -4384,7 +4390,10 @@ static void netplay_hangup(netplay_t *netplay,
    settings_t *settings = config_get_ptr();
 
    if (!netplay || (!(connection->flags & NETPLAY_CONN_FLAG_ACTIVE)))
+   {
+      gv_hangup_why = NULL;   /* Game Vault: not left over for the next drop */
       return;
+   }
 
    was_playing = connection->mode == NETPLAY_CONNECTION_PLAYING ||
       connection->mode == NETPLAY_CONNECTION_SLAVE;
@@ -4420,7 +4429,25 @@ static void netplay_hangup(netplay_t *netplay,
       networking_driver_st.core_netpacket_interface->disconnected
             ((uint16_t)(connection - netplay->connections + 1));
 
-   RARCH_LOG("[Netplay] %s\n", _msg);
+   /* Game Vault: why, at which step and how the connection was doing; no player name (reports come to us) */
+   {
+      static const char *const steps[] = { "", "", "waiting for the first hello", "waiting for the player name",
+            "waiting for the password", "checking the game and core", "sending the game state" };
+      long behind = -1;
+      char step[96];
+      if (connection->mode >= NETPLAY_CONNECTION_INIT && connection->mode < NETPLAY_CONNECTION_CONNECTED)
+         snprintf(step, sizeof(step), "while joining (%s)", steps[connection->mode]);
+      else
+         snprintf(step, sizeof(step), "%s", was_playing ? "while playing" : "while watching");
+      if (netplay->is_server && was_playing)
+         behind = (long)netplay->self_frame_count
+               - (long)netplay->read_frame_count[connection - netplay->connections + 1];
+      RARCH_LOG("[Netplay] [Game Vault] %s %s: %s (ping %d ms, slow-player waits %u, frames behind %ld)\n",
+            netplay->is_server ? "A player was dropped" : "Left the room", step,
+            gv_hangup_why ? gv_hangup_why : "the connection closed or broke (network, relay or the other side quit)",
+            (int)connection->ping, (unsigned)connection->stall_slow, behind);
+      gv_hangup_why = NULL;
+   }
    /* This notification is really only important to the server if the client was playing.
     * Let it be optional if server and the client wasn't playing. */
    if (!netplay->is_server || was_playing ||
@@ -4582,7 +4609,7 @@ static bool send_input_frame(netplay_t *netplay, struct delta_frame *dframe,
    {
       if (!netplay_send(&only->send_packet_buffer, only->fd, buffer, bufused * sizeof(uint32_t)))
       {
-         netplay_hangup(netplay, only);
+         GV_HANGUP(netplay, only, "sending to them failed: the connection is gone");
          return false;
       }
    }
@@ -4600,7 +4627,7 @@ static bool send_input_frame(netplay_t *netplay, struct delta_frame *dframe,
          {
             if (!netplay_send(&connection->send_packet_buffer, connection->fd,
                   buffer, bufused * sizeof(uint32_t)))
-               netplay_hangup(netplay, connection);
+               GV_HANGUP(netplay, connection, "sending to them failed: the connection is gone");
          }
       }
    }
@@ -4715,7 +4742,7 @@ void netplay_send_raw_cmd_all(netplay_t *netplay,
             && (connection->mode >= NETPLAY_CONNECTION_CONNECTED))
       {
          if (!netplay_send_raw_cmd(netplay, connection, cmd, data, len))
-            netplay_hangup(netplay, connection);
+            GV_HANGUP(netplay, connection, "sending to them failed: the connection is gone");
       }
    }
 }
@@ -4739,7 +4766,7 @@ static void netplay_send_flush_all(netplay_t *netplay,
       {
          if (!netplay_send_flush(&connection->send_packet_buffer,
             connection->fd, true))
-            netplay_hangup(netplay, connection);
+            GV_HANGUP(netplay, connection, "sending to them failed: the connection is gone");
       }
    }
 }
@@ -4747,6 +4774,7 @@ static void netplay_send_flush_all(netplay_t *netplay,
 static bool netplay_cmd_nak(netplay_t *netplay,
    struct netplay_connection *connection)
 {
+   gv_hangup_why = "they sent something wrong (the [Netplay] error just above says what)";
    netplay_send_raw_cmd(netplay, connection, NETPLAY_CMD_NAK, NULL, 0);
    return false;
 }
@@ -5178,7 +5206,7 @@ static void netplay_handle_play_spectate(netplay_t *netplay,
                   connection->mode = NETPLAY_CONNECTION_CONNECTED;
                    netplay_send_raw_cmd(netplay, connection,
                       NETPLAY_CMD_MODE_REFUSED, &reason, sizeof(reason));
-                   netplay_hangup(netplay, connection);
+                   GV_HANGUP(netplay, connection, "the game core refused the player");
                    return;
                }
 
@@ -5547,7 +5575,13 @@ static bool netplay_get_cmd(netplay_t *netplay,
 
    /* We don't handle the initial handshake here */
    if (connection->mode < NETPLAY_CONNECTION_CONNECTED)
-      return netplay_handshake(netplay, connection, had_input);
+   {
+      if (netplay_handshake(netplay, connection, had_input))
+         return true;
+      if (!gv_hangup_why)
+         gv_hangup_why = "joining failed (a [Netplay] line just above may say why; none: the connection broke)";
+      return false;
+   }
 
    RECV(&cmd, sizeof(cmd))
       return false;
@@ -5572,6 +5606,7 @@ static bool netplay_get_cmd(netplay_t *netplay,
 
       case NETPLAY_CMD_NAK:
          /* Disconnect now! */
+         gv_hangup_why = "the other side found an error in what we sent (NAK; their log says what)";
          return false;
 
       case NETPLAY_CMD_INPUT:
@@ -6129,7 +6164,7 @@ static bool netplay_get_cmd(netplay_t *netplay,
          break;
 
       case NETPLAY_CMD_DISCONNECT:
-         netplay_hangup(netplay, connection);
+         GV_HANGUP(netplay, connection, "the other side left the room");
          return true;
 
       case NETPLAY_CMD_CRC:
@@ -7693,7 +7728,7 @@ static void netplay_send_savestate(netplay_t *netplay,
    {
       /* Catastrophe! */
       for (i = 0; i < netplay->connections_size; i++)
-         netplay_hangup(netplay, &netplay->connections[i]);
+         GV_HANGUP(netplay, &netplay->connections[i], "packing the game state failed");
       return;
    }
 
@@ -7725,7 +7760,7 @@ static void netplay_send_savestate(netplay_t *netplay,
                  connection->fd, header, sizeof(header))
             || !netplay_send(&connection->send_packet_buffer,
                  connection->fd, netplay->zbuffer, wn))
-            netplay_hangup(netplay, connection);
+            GV_HANGUP(netplay, connection, "sending the game state failed: the connection is gone");
       }
       else
       {
@@ -7895,7 +7930,7 @@ static void netplay_core_reset(netplay_t *netplay)
 
       if (!netplay_send(&connection->send_packet_buffer, connection->fd, cmd,
                sizeof(cmd)))
-         netplay_hangup(netplay, connection);
+         GV_HANGUP(netplay, connection, "sending to them failed: the connection is gone");
    }
 }
 
@@ -8583,7 +8618,8 @@ static bool netplay_poll(netplay_t *netplay, bool block_libretro_input)
                      continue;
 
                   if (connection->stall != NETPLAY_STALL_NONE)
-                     netplay_hangup(netplay, connection);
+                     GV_HANGUP(netplay, connection, "the game waited 5 seconds for their buttons "
+                           "(connection too slow or frozen, or their console/PC too slow)");
                }
 
                netplay->stall = NETPLAY_STALL_NONE;
@@ -8605,7 +8641,8 @@ static bool netplay_poll(netplay_t *netplay, bool block_libretro_input)
 
 catastrophe:
    for (i = 0; i < netplay->connections_size; i++)
-      netplay_hangup(netplay, &netplay->connections[i]);
+      GV_HANGUP(netplay, &netplay->connections[i],
+            "nothing usable arrived from the host for 10 seconds (connection frozen or too slow)");
 
    return false;
 }
@@ -9333,7 +9370,7 @@ static void netplay_disconnect(netplay_t *netplay)
    size_t i;
 
    for (i = 0; i < netplay->connections_size; i++)
-      netplay_hangup(netplay, &netplay->connections[i]);
+      GV_HANGUP(netplay, &netplay->connections[i], "online play was ended on this console/device");
 
    deinit_netplay();
 
@@ -9456,7 +9493,7 @@ static void netplay_post_frame(netplay_t *netplay)
           && !netplay_send_flush(
              &connection->send_packet_buffer, connection->fd,
              false))
-         netplay_hangup(netplay, connection);
+         GV_HANGUP(netplay, connection, "sending to them failed: the connection is gone");
    }
 
    /* If we're disconnected, deinitialize */
@@ -9768,7 +9805,7 @@ static bool kick_client_by_id(netplay_t *netplay, int client_id, bool ban)
    if (ban && !ban_client(netplay, connection))
       return false;
 
-   netplay_hangup(netplay, connection);
+   GV_HANGUP(netplay, connection, "kicked by the host");
 
    return true;
 }
@@ -9794,7 +9831,7 @@ static bool kick_client_by_name(netplay_t *netplay, const char *client_name,
          if (ban && !ban_client(netplay, connection))
             return false;
 
-         netplay_hangup(netplay, connection);
+         GV_HANGUP(netplay, connection, "kicked by the host");
 
          return true;
       }
@@ -9825,7 +9862,7 @@ static bool kick_client_by_id_and_name(netplay_t *netplay,
    if (ban && !ban_client(netplay, connection))
       return false;
 
-   netplay_hangup(netplay, connection);
+   GV_HANGUP(netplay, connection, "kicked by the host");
 
    return true;
 }
@@ -10369,7 +10406,7 @@ static void netplay_send_cmd_netpacket(netplay_t *netplay, size_t conn_idx,
    if (     (need_flush && !netplay_send_flush(sbuf, connection->fd, true))
          || (!netplay_send(sbuf, connection->fd, cmdbuf, sizeof(cmdbuf)))
          || (len && !netplay_send(sbuf, connection->fd, buf, len)))
-      netplay_hangup(netplay, connection);
+      GV_HANGUP(netplay, connection, "sending to them failed: the connection is gone");
 }
 
 static void RETRO_CALLCONV netplay_netpacket_send_cb(int flags,
