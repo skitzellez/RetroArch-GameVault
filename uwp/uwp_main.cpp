@@ -72,6 +72,7 @@ extern "C" int uwp_cdrom_media_event(void);
 
 static void ResumeTick(void);
 static void ResumeForget(void);
+static void ResumeLeft(bool left);
 static void ControlsTick(void);
 
 /* Game Vault: a game from the console's drive changes discs when the player swaps the disc - no menu. The
@@ -715,8 +716,30 @@ static void ResumeForget(void)
 {
    if (s_home.empty())
       return;
-   for (const char *name : { "\\retroarch.txt", "\\retroarch-1.state", "\\retroarch-2.state" })
+   for (const char *name : { "\\retroarch.txt", "\\retroarch-1.state", "\\retroarch-2.state", "\\retroarch.left" })
       DeleteFileFromAppW(winrt::to_hstring(ResumeDir() + name).c_str());
+}
+
+/* "resume\retroarch.left" while RetroArch is suspended (the player went to Home or the guide; Quit from Home and
+ * the console closing it for memory both come after this). A crash during play never passes here, so Game Vault
+ * tells the two apart: no marker = it stopped by itself (back at once); marker = the player left it (asks). */
+static void ResumeLeft(bool left)
+{
+   if (s_home.empty())
+      return;
+   std::wstring file = winrt::to_hstring(ResumeDir() + "\\retroarch.left").c_str();
+   if (!left)
+   {
+      DeleteFileFromAppW(file.c_str());
+      return;
+   }
+   WIN32_FILE_ATTRIBUTE_DATA d;
+   if (!GetFileAttributesExFromAppW(winrt::to_hstring(ResumeDir() + "\\retroarch.txt").c_str(),
+            GetFileExInfoStandard, &d))
+      return;   /* no game to go back to */
+   HANDLE h = CreateFile2FromAppW(file.c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
+   if (h != INVALID_HANDLE_VALUE)
+      CloseHandle(h);
 }
 
 static void ResumeTick(void)
@@ -763,6 +786,21 @@ static void ResumeTick(void)
    if (slot && !content_save_state_in_progress(NULL))
    {
       std::string state = ResumeDir() + "\\retroarch-" + std::to_string(slot) + ".state";
+      /* only a file written just now: the queue drops a save while another one is busy, and a failed write
+       * leaves the old file (or none) */
+      WIN32_FILE_ATTRIBUTE_DATA d;
+      FILETIME now_ft;
+      GetSystemTimeAsFileTime(&now_ft);
+      uint64_t now_t = ((uint64_t)now_ft.dwHighDateTime << 32) | now_ft.dwLowDateTime, file_t = 0;
+      if (GetFileAttributesExFromAppW(winrt::to_hstring(state).c_str(), GetFileExInfoStandard, &d) &&
+          (d.nFileSizeLow || d.nFileSizeHigh))
+         file_t = ((uint64_t)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
+      if (!file_t || now_t - file_t > 60ull * 10000000ull)
+      {
+         RARCH_LOG("[Game Vault] Resume: the save was not written; the last one stays.\n");
+         slot = 0;
+         return;
+      }
       std::string text  = "game=" + game + "\ncore=" + std::string(path_get(RARCH_PATH_CORE)) + "\nstate=" + state +
             "\nsaved=" + std::to_string((long long)time(NULL)) + "\n";
       std::string info  = ResumeDir() + "\\retroarch.txt", part = info + ".new";
@@ -875,6 +913,8 @@ static void ControlsTick(void)
       core.resize(core.rfind('.'));
    for (const std::string &file : { dir + "\\" + game + ".txt", dir + "\\core " + core + ".txt" })
    {
+      if (core.empty() && file != dir + "\\" + game + ".txt")
+         continue;
       HANDLE h = CreateFile2FromAppW(winrt::to_hstring(file).c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
       if (h == INVALID_HANDLE_VALUE)
          continue;
@@ -948,10 +988,110 @@ static void SettingsBackup(void)
       CopyFileFromAppW(own.c_str(), drive.c_str(), FALSE);
 }
 
+/* Game Vault: settings every player gets without the PC setup, set once each (config\gv-defaults.txt remembers
+ * them; a player who changes one afterwards keeps their choice).
+ * HD: SwanStation (PS1) draws with the console's GPU at 8x with PGXP (no wobbly polygons) and true colour; these
+ * came only from the PC setup's SwanStation.opt before, so players without it played at native resolution.
+ * Loading: PS1 and Dreamcast discs are read faster than the real drives did.
+ * Rumble on by default wherever a core has it. Some cores ship with it off: SwanStation (PS1) needs
+ * its rumble switch and the DualShock pad type (a digital pad has no motors), Mupen64Plus-Next (N64) puts a
+ * Memory Pak in the controller instead of a Rumble Pak, mGBA leaves Game Boy Player rumble off. The DualShock
+ * starts in digital mode, so games made for the digital pad still work. */
+static void GvDefaults(void)
+{
+   struct Default
+   {
+      const char *file; /* under config\ */
+      const char *key;
+      const char *value;
+   };
+   static const Default kDefaults[] = {
+      {"SwanStation\\SwanStation.opt", "swanstation_GPU_Renderer", "D3D11"},
+      {"SwanStation\\SwanStation.opt", "swanstation_GPU_ResolutionScale", "8"},
+      {"SwanStation\\SwanStation.opt", "swanstation_GPU_TrueColor", "true"},
+      {"SwanStation\\SwanStation.opt", "swanstation_GPU_ScaledDithering", "true"},
+      {"SwanStation\\SwanStation.opt", "swanstation_GPU_PGXPEnable", "true"},
+      {"SwanStation\\SwanStation.opt", "swanstation_GPU_PGXPCulling", "true"},
+      {"SwanStation\\SwanStation.opt", "swanstation_GPU_PGXPTextureCorrection", "true"},
+      /* shorter loading: the disc is read 4x faster than the real double-speed drive (music and videos keep
+       * their speed: the core reads at normal speed while CD audio plays), seeks 4x faster, and the BIOS intro
+       * is skipped */
+      {"SwanStation\\SwanStation.opt", "swanstation_CDROM_ReadSpeedup", "4"},
+      {"SwanStation\\SwanStation.opt", "swanstation_CDROM_SeekSpeedup", "4"},
+      {"SwanStation\\SwanStation.opt", "swanstation_BIOS_PatchFastBoot", "true"},
+      {"Flycast\\Flycast.opt", "reicast_gdrom_fast_loading", "enabled"}, /* Dreamcast GD-ROM at full speed */
+      {"SwanStation\\SwanStation.opt", "swanstation_Controller_EnableRumble", "true"},
+      {"SwanStation\\SwanStation.opt", "swanstation_Controller1_AnalogDPadInDigitalMode", "true"},
+      {"remaps\\SwanStation\\SwanStation.rmp", "input_libretro_device_p1", "261"}, /* Analog Controller (DualShock) */
+      {"PCSX-ReARMed\\PCSX-ReARMed.opt", "pcsx_rearmed_vibration", "enabled"},
+      {"Mupen64Plus-Next\\Mupen64Plus-Next.opt", "mupen64plus-pak1", "rumble"},
+      {"mGBA\\mGBA.opt", "mgba_force_gbp", "ON"},
+   };
+   const std::string config = LocalStateDir() + "\\config";
+   const std::string done_file = config + "\\gv-defaults.txt";
+   std::string done;
+   if (FILE *f = fopen(done_file.c_str(), "rb"))
+   {
+      char buf[4096];
+      size_t n = fread(buf, 1, sizeof(buf), f);
+      done.assign(buf, n);
+      fclose(f);
+   }
+   std::string newly;
+   for (const Default &d : kDefaults)
+   {
+      const std::string id = std::string(d.file) + "|" + d.key;
+      if (done.find(id + "\n") != std::string::npos)
+         continue;
+      const std::string path = config + "\\" + d.file;
+      CreateDirectoryFromAppW(winrt::to_hstring(path.substr(0, path.rfind('\\'))).c_str(), NULL);
+      if (path.find("\\remaps\\") != std::string::npos)
+         CreateDirectoryFromAppW(winrt::to_hstring(config + "\\remaps").c_str(), NULL);
+      /* the file without the key's old line, then the key with our value */
+      std::string text, line;
+      if (FILE *f = fopen(path.c_str(), "rb"))
+      {
+         char buf[8192];
+         size_t n;
+         while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+            text.append(buf, n);
+         fclose(f);
+      }
+      std::string out;
+      for (size_t at = 0; at < text.size();)
+      {
+         size_t end = text.find('\n', at);
+         end        = end == std::string::npos ? text.size() : end + 1;
+         line       = text.substr(at, end - at);
+         if (line.compare(0, strlen(d.key), d.key) != 0 ||
+               (line.size() > strlen(d.key) && line[strlen(d.key)] != ' ' && line[strlen(d.key)] != '='))
+            out += line;
+         at = end;
+      }
+      if (!out.empty() && out.back() != '\n')
+         out += "\n";
+      out += std::string(d.key) + " = \"" + d.value + "\"\n";
+      if (FILE *f = fopen(path.c_str(), "wb"))
+      {
+         fwrite(out.data(), 1, out.size(), f);
+         fclose(f);
+         newly += id + "\n";
+         RARCH_LOG("[Game Vault] Default: %s = \"%s\" (%s).\n", d.key, d.value, d.file);
+      }
+   }
+   if (!newly.empty())
+      if (FILE *f = fopen(done_file.c_str(), "ab"))
+      {
+         fwrite(newly.data(), 1, newly.size(), f);
+         fclose(f);
+      }
+}
+
 /* Before start-up: the folders go in a small extra config, given to RetroArch as --appendconfig. */
 static void HomeBeforeStart(std::vector<std::string> *args)
 {
    SettingsBackup();
+   GvDefaults();
    std::string cfg = ReadSmallFile(LocalStateDir() + "\\retroarch.cfg"), current[3], want[3];
    for (int i = 0; i < 3; i++)
       current[i] = CfgValue(cfg, kHomeFolders[i][0]);
@@ -1171,7 +1311,14 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
          configuration_set_int(settings,
                settings->uints.video_fullscreen_y,
                height);
-         reset = true; /* Reset needed */
+         /* Game Vault: the size is never saved on UWP (settings_def_video_fullscreen.h), so it is 0 at every
+          * start and this rebuilt the video right after a game sent by Game Vault had loaded. SwanStation (PS1)
+          * does not survive that: "Switching to software renderer", native resolution, no HD. A size of 0
+          * already means the display's size, so with a game running the new size is only noted. */
+         if (!(p_content->flags & CONTENT_ST_FLAG_IS_INITED))
+            reset = true; /* Reset needed */
+         else
+            RARCH_LOG("[Game Vault] Display %dx%d noted, video not rebuilt (a game is running).\n", width, height);
       }
       if (reset) /* Restart driver */
          command_event(CMD_EVENT_REINIT, NULL);
@@ -1196,6 +1343,7 @@ void App::OnSuspending(IInspectable const& sender, SuspendingEventArgs const& ar
     * not be held indefinitely. After about five seconds, the app will
     * be forced to exit. */
    SuspendingDeferral deferral = args.SuspendingOperation().GetDeferral();
+   ResumeLeft(true);   /* Game Vault: the player left the game (see ResumeLeft) */
 
    std::thread([deferral]()
          {
@@ -1235,6 +1383,7 @@ void App::OnSuspending(IInspectable const& sender, SuspendingEventArgs const& ar
 
 void App::OnResuming(IInspectable const& sender, IInspectable const& args)
 {
+   ResumeLeft(false);   /* back in the game */
    /* Restore any data or state that was unloaded on suspend. By default, data
     * and state are persisted when resuming from suspend. Note that this event
     * does not occur if the app was previously terminated.
@@ -1469,6 +1618,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
    {
       unsigned i;
       std::string home, relay;
+      s_resume_load = false;   /* resume=1 below, for this start only */
       bool fps = false;
       ProtocolActivatedEventArgs protocolArgs = args.as<ProtocolActivatedEventArgs>();
       WwwFormUrlDecoder query = protocolArgs.Uri().QueryParsed();
