@@ -597,6 +597,31 @@ extern "C" void uwp_gamevault_smb_override(struct smb_settings *cfg)
 static bool s_fps;
 
 /* "true" / "false" for video_fps_show, or empty when nothing changes */
+/* Game Vault: a hosted room of a SNES game for 3 or more players ("multitap=1") plugs Snes9x's Multitap into port 2,
+ * so players 3, 4 and 5 can join; the room's other players get the same from the host. Only for those games: the
+ * Multitap breaks some others (Tetris & Dr. Mario), so the next start without it plugs the usual pad back in.
+ * "" = leave port 2 alone, else the device for input_libretro_device_p2. */
+static bool s_multitap;
+static std::string MultitapChange()
+{
+   std::wstring mark = std::wstring(winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path()) +
+         L"\\gamevault_multitap.on";
+   WIN32_FILE_ATTRIBUTE_DATA d;
+   bool marked = GetFileAttributesExFromAppW(mark.c_str(), GetFileExInfoStandard, &d) != 0;
+   if (s_multitap && !marked)
+   {
+      HANDLE h = CreateFile2FromAppW(mark.c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
+      if (h != INVALID_HANDLE_VALUE)
+         CloseHandle(h);
+   }
+   else if (!s_multitap && marked)
+   {
+      DeleteFileFromAppW(mark.c_str());
+      return "1";     /* RETRO_DEVICE_JOYPAD */
+   }
+   return s_multitap ? "257" : std::string();   /* RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 0): Snes9x "Multitap" */
+}
+
 static std::string FpsChange()
 {
    std::wstring mark = std::wstring(winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path()) +
@@ -1170,6 +1195,9 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    if (!s_relay.empty())   /* a room hosted from Game Vault's Online tab */
       text += "netplay_use_mitm_server = \"true\"\nnetplay_mitm_server = \"" + s_relay + "\"\n"
               "netplay_public_announce = \"true\"\n";
+   std::string multitap = MultitapChange();
+   if (!multitap.empty())
+      text += "input_libretro_device_p2 = \"" + multitap + "\"\n";
    /* The menu's pictures and fonts (assets\ozone: the selection bar, the icons) come with this package. A console
     * never had them in RetroArch's own folder, so the menu showed no selection at all. The package's copy is used
     * whenever the folder set in the settings lacks them (its path changes with each update, hence every start). */
@@ -1293,6 +1321,12 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
             netplay_driver_ctl(RARCH_NETPLAY_CTL_DISABLE, NULL);
             if (!nick.empty())
                configuration_set_string(settings, settings->paths.username, nick.c_str());
+            std::string multitap = MultitapChange();   /* before the game loads: the core takes port 2's device then */
+            if (!multitap.empty())
+            {
+               configuration_set_uint(settings, settings->uints.input_libretro_device[1], unsigned(atoi(multitap.c_str())));
+               RARCH_LOG("[Game Vault] Port 2: %s\n", s_multitap ? "Multitap" : "pad");
+            }
             if (host)
             {
                if (!s_relay.empty())
@@ -1718,7 +1752,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       std::string home, relay;
       s_resume_load = false;   /* resume=1 below, for this start only */
       s_titleshot   = false;   /* titleshot=1 too */
-      bool fps = false;
+      bool fps = false, multitap = false;
       ProtocolActivatedEventArgs protocolArgs = args.as<ProtocolActivatedEventArgs>();
       WwwFormUrlDecoder query = protocolArgs.Uri().QueryParsed();
 
@@ -1759,6 +1793,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             s_netcred_file = winrt::to_string(arg.Value());
          else if (arg.Name() == L"relay")
             relay = winrt::to_string(arg.Value());
+         else if (arg.Name() == L"multitap")
+            multitap = arg.Value() == L"1";
          else if (arg.Name() == L"resume")
             s_resume_load = arg.Value() == L"1";
          else if (arg.Name() == L"titleshot")
@@ -1772,6 +1808,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       for (char c : relay)
          letters = letters && c >= 'a' && c <= 'z';
       s_relay = letters ? relay : std::string();
+      s_multitap = multitap;
    }
 
    if (!m_initialized)
