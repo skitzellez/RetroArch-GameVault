@@ -15,6 +15,7 @@ mupen64plus_next_gles3
 mgba
 snes9x
 mesen
+fceumm
 gambatte
 mednafen_vb
 pokemini

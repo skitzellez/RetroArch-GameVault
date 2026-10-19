@@ -23,6 +23,7 @@ RetroArch 1.22.2 APK; the system files for Dolphin, PPSSPP, LRPS2 and blueMSX co
 | mGBA | `mgba_libretro_android.so` | MPLv2.0 | https://github.com/libretro/mgba |
 | Snes9x | `snes9x_libretro_android.so` | Non-commercial | https://github.com/libretro/snes9x |
 | Mesen | `mesen_libretro_android.so` | GPLv3 | https://github.com/libretro/Mesen |
+| FCEUmm (NES online: the build Xbox and PC rooms use) | `fceumm_libretro_android.so` | GPLv2 | https://github.com/libretro/libretro-fceumm |
 | Gambatte | `gambatte_libretro_android.so` | GPLv2 | https://github.com/libretro/gambatte-libretro |
 | Beetle VB | `mednafen_vb_libretro_android.so` | GPLv2 | https://github.com/libretro/beetle-vb-libretro |
 | PokeMini | `pokemini_libretro_android.so` | GPLv3 | https://github.com/libretro/PokeMini |

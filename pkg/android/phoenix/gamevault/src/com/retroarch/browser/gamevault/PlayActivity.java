@@ -135,6 +135,8 @@ public final class PlayActivity extends Activity
       File cores  = linkCores();
       File cfg    = firstConfig();
       systemFiles(core);
+      if ("1".equals(in.getStringExtra("NETPLAY_HOST")) && cfg != null)
+         hostThroughRelay(cfg, in.getStringExtra("NETPLAY_RELAY"));
 
       Intent i = new Intent(this, RetroActivityFuture.class);
       if (in.getExtras() != null)
@@ -225,6 +227,43 @@ public final class PlayActivity extends Activity
          Log.w(TAG, "core list: " + e);
       }
       return out;
+   }
+
+   /* A hosted room goes through one of RetroArch's relay servers (a phone cannot open a port on the router) and is
+    * listed in the public lobby, so Xbox, PC and other phones see it. relay: the server's short name ("nyc"). */
+   private static void hostThroughRelay(File cfg, String relay)
+   {
+      if (relay == null || !relay.matches("[a-z]{1,32}"))
+         relay = "nyc";
+      java.util.Map<String, String> set = new java.util.LinkedHashMap<>();
+      set.put("netplay_use_mitm_server", "true");
+      set.put("netplay_mitm_server", relay);
+      set.put("netplay_public_announce", "true");
+      StringBuilder out = new StringBuilder();
+      try
+      {
+         for (String line : new String(java.nio.file.Files.readAllBytes(cfg.toPath()), "UTF-8").split("\n"))
+         {
+            String key = line.split("=", 2)[0].trim();
+            if (!set.containsKey(key))
+               out.append(line).append('\n');
+         }
+      }
+      catch (IOException e)
+      {
+         /* a new file */
+      }
+      for (java.util.Map.Entry<String, String> e : set.entrySet())
+         out.append(e.getKey()).append(" = \"").append(e.getValue()).append("\"\n");
+      try (OutputStream o = new FileOutputStream(cfg))
+      {
+         o.write(out.toString().getBytes("UTF-8"));
+      }
+      catch (IOException e)
+      {
+         Log.w(TAG, "relay setting: " + e);
+      }
+      Log.i(TAG, "hosting through the " + relay + " relay");
    }
 
    private File firstConfig()

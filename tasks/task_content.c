@@ -1893,6 +1893,14 @@ static void content_load_init_wrap(
 
    if (args->flags & RARCH_MAIN_WRAP_FLAG_VERBOSE)
       argv[(*argc)++] = strldup("-v", sizeof("-v"));
+
+   /* Game Vault: switches the frontend adds (Android: an online room) */
+   if (args->argv)
+   {
+      int i;
+      for (i = 0; i < args->argc && *argc < MAX_ARGS - 1; i++)
+         argv[(*argc)++] = strdup(args->argv[i]);
+   }
 }
 
 /**

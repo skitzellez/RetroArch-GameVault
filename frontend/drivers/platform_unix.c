@@ -2598,6 +2598,79 @@ static void frontend_unix_get_env(int *argc,
       }
    }
 
+   /* Game Vault: an online room. NETPLAY_HOST "1" hosts one; NETPLAY_CONNECT (+ NETPLAY_PORT, NETPLAY_SESSION for a
+    * relay) joins one; NETPLAY_NICK is the name shown in the room. They become the same switches the command line
+    * takes (--host, --connect, --port, --mitm-session, --nick). Other apps can open RetroArch too, so only plain
+    * host names, numbers, a base64 relay session and a short name get through. */
+   if (args)
+   {
+      static const char *keys[]  = { "NETPLAY_HOST", "NETPLAY_CONNECT", "NETPLAY_PORT", "NETPLAY_SESSION",
+                                     "NETPLAY_NICK" };
+      static const char *flags[] = { "--host", "--connect", "--port", "--mitm-session", "--nick" };
+      static char vals[5][72];
+      static char *net_argv[10];
+      int net_argc = 0;
+      size_t k;
+      for (k = 0; k < 5; k++)
+      {
+         const char *v;
+         bool ok = true;
+         size_t n, j;
+         vals[k][0] = '\0';
+         CALL_OBJ_METHOD_PARAM(env, jstr, obj, android_app->getStringExtra,
+               (*env)->NewStringUTF(env, keys[k]));
+         if (!android_app->getStringExtra || !jstr)
+            continue;
+         v = (*env)->GetStringUTFChars(env, jstr, 0);
+         if (v)
+         {
+            n  = strlen(v);
+            ok = n > 0 && n < sizeof(vals[k]) && (k != 4 || n <= 32);
+            for (j = 0; ok && j < n; j++)
+            {
+               unsigned char c = (unsigned char)v[j];
+               bool alnum      = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+               switch (k)
+               {
+                  case 1:  ok = alnum || c == '.' || c == '-' || c == ':'; break;
+                  case 2:  ok = c >= '0' && c <= '9'; break;
+                  case 3:  ok = alnum || c == '+' || c == '/' || c == '='; break;
+                  case 4:  ok = alnum || c == ' ' || c == '#' || c == '-' || c == '_'; break;
+                  default: ok = c == '1'; break;
+               }
+            }
+            if (ok)
+               strlcpy(vals[k], v, sizeof(vals[k]));
+         }
+         (*env)->ReleaseStringUTFChars(env, jstr, v);
+      }
+      if (*vals[0])
+         net_argv[net_argc++] = (char*)flags[0];
+      else if (*vals[1])
+      {
+         net_argv[net_argc++] = (char*)flags[1];
+         net_argv[net_argc++] = vals[1];
+         for (k = 2; k < 4; k++)
+            if (*vals[k])
+            {
+               net_argv[net_argc++] = (char*)flags[k];
+               net_argv[net_argc++] = vals[k];
+            }
+      }
+      if (net_argc && *vals[4])
+      {
+         net_argv[net_argc++] = (char*)flags[4];
+         net_argv[net_argc++] = vals[4];
+      }
+      if (net_argc)
+      {
+         args->argv = net_argv;
+         args->argc = net_argc;
+         __android_log_print(ANDROID_LOG_INFO, "RetroArch", "[ENV] Online room: %s.\n",
+               *vals[0] ? "hosting" : (*vals[3] ? "joining through a relay" : "joining"));
+      }
+   }
+
    /* Internal Storage */
    CALL_OBJ_METHOD_PARAM(env, jstr, obj, android_app->getStringExtra,
          (*env)->NewStringUTF(env, "SDCARD"));
