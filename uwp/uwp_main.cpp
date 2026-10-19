@@ -1061,7 +1061,7 @@ static void SettingsBackup(void)
  * them; a player who changes one afterwards keeps their choice).
  * HD: SwanStation (PS1) draws with the console's GPU at 8x with PGXP (no wobbly polygons) and true colour; these
  * came only from the PC setup's SwanStation.opt before, so players without it played at native resolution.
- * Loading: PS1 and Dreamcast discs are read faster than the real drives did.
+ * Loading: Dreamcast discs are read faster than the real drive did; the PS1 skips its BIOS intro.
  * Rumble on by default wherever a core has it. Some cores ship with it off: SwanStation (PS1) needs
  * its rumble switch and the DualShock pad type (a digital pad has no motors), Mupen64Plus-Next (N64) puts a
  * Memory Pak in the controller instead of a Rumble Pak, mGBA leaves Game Boy Player rumble off. The DualShock
@@ -1082,11 +1082,8 @@ static void GvDefaults(void)
       {"SwanStation\\SwanStation.opt", "swanstation_GPU_PGXPEnable", "true"},
       {"SwanStation\\SwanStation.opt", "swanstation_GPU_PGXPCulling", "true"},
       {"SwanStation\\SwanStation.opt", "swanstation_GPU_PGXPTextureCorrection", "true"},
-      /* shorter loading: the disc is read 4x faster than the real double-speed drive (music and videos keep
-       * their speed: the core reads at normal speed while CD audio plays), seeks 4x faster, and the BIOS intro
-       * is skipped */
-      {"SwanStation\\SwanStation.opt", "swanstation_CDROM_ReadSpeedup", "4"},
-      {"SwanStation\\SwanStation.opt", "swanstation_CDROM_SeekSpeedup", "4"},
+      /* shorter start: the BIOS intro is skipped. The disc keeps its real speed: 4x faster reads and seeks froze
+       * Driver 2 when its loading finished (games may wait on the drive's real timing) */
       {"SwanStation\\SwanStation.opt", "swanstation_BIOS_PatchFastBoot", "true"},
       {"Flycast\\Flycast.opt", "reicast_gdrom_fast_loading", "enabled"}, /* Dreamcast GD-ROM at full speed */
       {"SwanStation\\SwanStation.opt", "swanstation_Controller_EnableRumble", "true"},
@@ -1328,6 +1325,34 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
       return;
    }
 
+   /* Game Vault: on Xbox the video is rebuilt once after start-up (the display size below); RetroArch cannot show
+    * a picture without that rebuild, and a hardware-rendered core that is already running does not survive it
+    * (SwanStation: "Switching to software renderer", PS1 without HD). So a game sent with the start is held back
+    * and loaded once the video is ready, the way a game sent to an open RetroArch is. Online rooms (--host /
+    * --connect) still start the old way. */
+   std::string held_core, held_content;
+   if (is_running_on_xbox())
+   {
+      bool online = false;
+      for (size_t i = 0; i < argvTmp.size(); i++)
+         online |= argvTmp[i] == "--host" || argvTmp[i] == "--connect";
+      for (size_t i = 0; !online && i + 2 < argvTmp.size(); i++)
+      {
+         if (argvTmp[i] != "-L" || argvTmp[i + 2].empty() || argvTmp[i + 2][0] == '-')
+            continue;
+         held_core    = argvTmp[i + 1];
+         held_content = argvTmp[i + 2];
+         /* RetroArch starts with the rest of the arguments (--appendconfig ...) */
+         std::vector<char*> rest;
+         for (size_t j = 0; j < argv.size(); j++)
+            if (j < i || j > i + 2)
+               rest.push_back(argv[j]);
+         argv = rest;
+         argc = (int)argv.size() - 1;   /* argv ends with a null pointer */
+         break;
+      }
+   }
+
    if ((ret = rarch_main(argc, argv.data(), NULL)) != 0)
    {
       RARCH_ERR("[UWP] Init failed.\n");
@@ -1384,6 +1409,17 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
       }
       if (reset) /* Restart driver */
          command_event(CMD_EVENT_REINIT, NULL);
+   }
+
+   if (!held_content.empty())   /* the game held back above, now that the video is ready */
+   {
+      if (strncmp(held_content.c_str(), "smb://", 6) == 0)
+         retroarch_smb_init();
+      content_ctx_info_t content_info = {0};
+      RARCH_LOG("[Game Vault] Game loaded after the video was ready: %s with %s\n", held_content.c_str(),
+            held_core.c_str());
+      task_push_load_content_with_new_core_from_companion_ui(
+            held_core.c_str(), held_content.c_str(), NULL, NULL, NULL, &content_info, NULL, NULL);
    }
 
    /* Run() won't start until the CoreWindow is activated. */
