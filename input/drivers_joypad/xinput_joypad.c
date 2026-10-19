@@ -51,6 +51,7 @@
 
 #if defined(__WINRT__)
 #include <Xinput.h>
+#include "../../uwp/uwp_wheel.h"
 #endif
 
 /* Check if the definitions do not already exist.
@@ -304,6 +305,25 @@ static const char *xinput_joypad_name(unsigned pad)
    return XBOX_CONTROLLER_NAME;
 }
 
+#if defined(__WINRT__)
+/* Game Vault: XInput on UWP only sees gamepads; a racing wheel fills the first slot
+ * no pad is in, read as a pad (uwp/uwp_wheel.cpp). */
+static uint32_t __stdcall xinput_get_state_or_wheel(uint32_t index, XINPUT_STATE *out)
+{
+   uint32_t i, free_before = 0;
+   uint32_t result = XInputGetState(index, out);
+   if (result != ERROR_DEVICE_NOT_CONNECTED)
+      return result;
+   for (i = 0; i < index; i++)
+   {
+      XINPUT_STATE tmp;
+      if (XInputGetState(i, &tmp) == ERROR_DEVICE_NOT_CONNECTED)
+         free_before++;
+   }
+   return uwp_wheel_get_state(free_before, out) ? ERROR_SUCCESS : ERROR_DEVICE_NOT_CONNECTED;
+}
+#endif
+
 static void *xinput_joypad_init(void *data)
 {
    int i, j;
@@ -336,6 +356,9 @@ static void *xinput_joypad_init(void *data)
 #if defined(HAVE_DYLIB) && !defined(__WINRT__)
       g_XInputGetStateEx = (XInputGetStateEx_t)dylib_proc(
             g_xinput_dll, "XInputGetState");
+#elif defined(__WINRT__)
+      uwp_wheel_init();
+      g_XInputGetStateEx = (XInputGetStateEx_t)xinput_get_state_or_wheel;
 #else
 	  g_XInputGetStateEx = (XInputGetStateEx_t)XInputGetState;
 #endif

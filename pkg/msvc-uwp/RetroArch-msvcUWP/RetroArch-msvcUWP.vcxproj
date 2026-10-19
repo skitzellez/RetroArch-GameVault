@@ -238,6 +238,7 @@
     <ClCompile Include="..\..\..\uwp\uwp_main.cpp" />
     <ClCompile Include="..\..\..\uwp\uwp_cdrom.cpp" />
     <ClCompile Include="..\..\..\uwp\uwp_file_redirect.cpp" />
+    <ClCompile Include="..\..\..\uwp\uwp_wheel.cpp" />
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest">
@@ -251,6 +252,7 @@
     <ClInclude Include="..\..\..\uwp\uwp_async.h" />
     <ClInclude Include="..\..\..\uwp\uwp_func.h" />
     <ClInclude Include="..\..\..\uwp\uwp_main.h" />
+    <ClInclude Include="..\..\..\uwp\uwp_wheel.h" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\LargeTile.scale-100.png" />
