@@ -1201,6 +1201,45 @@ static void GvDefaults(void)
       }
 }
 
+/* Game Vault: a PlayStation game played online starts with PCSX-ReARMed (SwanStation's states do not keep two
+ * machines in step), and every player must run the same BIOS, or the games drift apart: one player's own BIOS file
+ * against another's built-in one is enough. So an online start of PCSX-ReARMed always uses its built-in BIOS (HLE).
+ * PCSX-ReARMed plays nothing else in Game Vault, so the setting stays. */
+static void NetplayCoreOptions(const std::vector<std::string> &args)
+{
+   bool online = false, pcsx = false;
+   for (size_t i = 0; i < args.size(); i++)
+   {
+      online |= args[i] == "--host" || args[i] == "--connect";
+      pcsx   |= args[i] == "-L" && i + 1 < args.size() && args[i + 1].find("pcsx_rearmed") != std::string::npos;
+   }
+   if (!online || !pcsx)
+      return;
+   const std::string dir  = LocalStateDir() + "\\config\\PCSX-ReARMed";
+   const std::string path = dir + "\\PCSX-ReARMed.opt";
+   CreateDirectoryFromAppW(winrt::to_hstring(LocalStateDir() + "\\config").c_str(), NULL);
+   CreateDirectoryFromAppW(winrt::to_hstring(dir).c_str(), NULL);
+   std::string text = ReadSmallFile(path), out;
+   for (size_t at = 0; at < text.size();)
+   {
+      size_t end       = text.find('\n', at);
+      end              = end == std::string::npos ? text.size() : end + 1;
+      std::string line = text.substr(at, end - at);
+      if (line.compare(0, 17, "pcsx_rearmed_bios") != 0)
+         out += line;
+      at = end;
+   }
+   if (!out.empty() && out.back() != '\n')
+      out += "\n";
+   out += "pcsx_rearmed_bios = \"HLE\"\n";
+   if (FILE *f = fopen(path.c_str(), "wb"))
+   {
+      fwrite(out.data(), 1, out.size(), f);
+      fclose(f);
+      RARCH_LOG("[Game Vault] Online PlayStation: built-in BIOS\n");
+   }
+}
+
 /* Before start-up: the folders go in a small extra config, given to RetroArch as --appendconfig. */
 static void HomeBeforeStart(std::vector<std::string> *args)
 {
@@ -1221,6 +1260,7 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    std::string multitap = MultitapChange();
    if (!multitap.empty())
       text += "input_libretro_device_p2 = \"" + multitap + "\"\n";
+   NetplayCoreOptions(*args);
    /* The menu's pictures and fonts (assets\ozone: the selection bar, the icons) come with this package. A console
     * never had them in RetroArch's own folder, so the menu showed no selection at all. The package's copy is used
     * whenever the folder set in the settings lacks them (its path changes with each update, hence every start). */
@@ -1344,6 +1384,7 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
             netplay_driver_ctl(RARCH_NETPLAY_CTL_DISABLE, NULL);
             if (!nick.empty())
                configuration_set_string(settings, settings->paths.username, nick.c_str());
+            NetplayCoreOptions(argvTmp);   /* before the game loads: the core reads its options then */
             std::string multitap = MultitapChange();   /* before the game loads: the core takes port 2's device then */
             if (!multitap.empty())
             {
