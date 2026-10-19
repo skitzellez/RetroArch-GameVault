@@ -229,8 +229,27 @@ void RARCH_LOG_V(const char *tag, const char *fmt, va_list ap)
    int _len;
    const char *tag_v = tag ? tag : FILE_PATH_LOG_INFO;
    buffer[0] = '\0';
+#if defined(__WINRT__)
+   {
+      /* Game Vault: seconds since start on each line (as xemu and XBSX2 have), so a report shows how long a
+       * session ran and what came last */
+      static ULONGLONG start;
+      static bool line_start = true;
+      ULONGLONG now = GetTickCount64();
+      if (!start)
+         start = now;
+      _len = line_start ? snprintf(buffer, sizeof(buffer), "[%8.3f] %s: %s ", (now - start) / 1000.0,
+                                   FILE_PATH_PROGRAM_NAME, tag_v)
+                        : snprintf(buffer, sizeof(buffer), "%s: %s ", FILE_PATH_PROGRAM_NAME, tag_v);
+      {
+         size_t f = strlen(fmt);
+         line_start = f > 0 && fmt[f - 1] == '\n';
+      }
+   }
+#else
    _len = snprintf(buffer, sizeof(buffer),
          "%s: %s ", FILE_PATH_PROGRAM_NAME, tag_v);
+#endif
 
    if (_len > 0 && _len < (int)sizeof(buffer))
    {
