@@ -1140,6 +1140,8 @@ static void GvDefaults(void)
       {"PCSX-ReARMed\\PCSX-ReARMed.opt", "pcsx_rearmed_vibration", "enabled"},
       {"Mupen64Plus-Next\\Mupen64Plus-Next.opt", "mupen64plus-pak1", "rumble"},
       {"mGBA\\mGBA.opt", "mgba_force_gbp", "ON"},
+      /* Azahar (3DS) on Auto asks for Vulkan, which this build has not got: "Failed to load content" */
+      {"Azahar\\Azahar.opt", "citra_graphics_api", "OpenGL"},
    };
    const std::string config = LocalStateDir() + "\\config";
    const std::string done_file = config + "\\gv-defaults.txt";
