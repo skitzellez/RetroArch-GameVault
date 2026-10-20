@@ -308,6 +308,16 @@
       <DeploymentContent>true</DeploymentContent>
       <Link>assets\ozone\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
+    <!-- Game Vault: the same for the XMB menu (its default "monochrome" theme) and Material UI (glui): a player who
+         switched the menu to one of those got bare text with no icons (Discord, krauser985, 2026-10-20) -->
+    <None Include="assets\xmb\monochrome\**\*">
+      <DeploymentContent>true</DeploymentContent>
+      <Link>assets\xmb\monochrome\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+    <None Include="assets\glui\**\*">
+      <DeploymentContent>true</DeploymentContent>
+      <Link>assets\glui\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
     <!-- Game Vault: the screen styles (libretro/slang-shaders; zfast_crt GPL-2.0+, lcd3x and sharp-bilinear-simple
          public domain), put on by uwp/gv_play.inc when Game Vault sends style= -->
     <None Include="assets\gv-shaders\**\*">

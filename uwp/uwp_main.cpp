@@ -1265,15 +1265,21 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    NetplayCoreOptions(*args);
    /* The menu's pictures and fonts (assets\ozone: the selection bar, the icons) come with this package. A console
     * never had them in RetroArch's own folder, so the menu showed no selection at all. The package's copy is used
-    * whenever the folder set in the settings lacks them (its path changes with each update, hence every start). */
+    * whenever the folder set in the settings lacks them (its path changes with each update, hence every start).
+    * The XMB (monochrome theme) and Material UI menus come along too: switched to XMB, a player saw bare text. */
    {
       std::string packaged = winrt::to_string(winrt::Windows::ApplicationModel::Package::Current()
             .InstalledLocation().Path()) + "\\assets";
       std::string set      = FolderOf(CfgValue(cfg, "assets_directory"), "assets");
+      static const char *const kMenuMarks[] = {
+         "\\ozone\\png\\cursor_border.png", "\\xmb\\monochrome\\png\\cursor.png", "\\glui\\add.png" };
       WIN32_FILE_ATTRIBUTE_DATA d;
-      if (!GetFileAttributesExFromAppW(winrt::to_hstring(set + "\\ozone\\png\\cursor_border.png").c_str(),
-               GetFileExInfoStandard, &d) &&
-          GetFileAttributesExFromAppW(winrt::to_hstring(packaged + "\\ozone\\png\\cursor_border.png").c_str(),
+      bool setHasAll = true;
+      for (const char *mark : kMenuMarks)
+         if (!GetFileAttributesExFromAppW(winrt::to_hstring(set + mark).c_str(), GetFileExInfoStandard, &d))
+            setHasAll = false;
+      if (!setHasAll &&
+          GetFileAttributesExFromAppW(winrt::to_hstring(packaged + kMenuMarks[1]).c_str(),
                GetFileExInfoStandard, &d))
       {
          text += "assets_directory = \"" + packaged + "\"\n";
