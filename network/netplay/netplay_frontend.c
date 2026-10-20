@@ -8651,7 +8651,7 @@ static bool netplay_poll(netplay_t *netplay, bool block_libretro_input)
                      continue;
 
                   if (connection->stall != NETPLAY_STALL_NONE)
-                     GV_HANGUP(netplay, connection, "the game waited 5 seconds for their buttons "
+                     GV_HANGUP(netplay, connection, "the game waited 10 seconds for their buttons "
                            "(connection too slow or frozen, or their console/PC too slow)");
                }
 

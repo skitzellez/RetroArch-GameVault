@@ -44,7 +44,9 @@
 #define NETPLAY_ANNOUNCE_TIME  20000000
 #define NETPLAY_PING_TIME      3000000
 
-#define MAX_SERVER_STALL_TIME_USEC (5*1000*1000)
+/* Game Vault: 10 s like a client, not 5: a console player dropped after one 5 s hiccup through the relay
+ * (2026-10-20, Tekken 3, ping 216 ms, 60 frames behind) while the match had run fine for 5 minutes */
+#define MAX_SERVER_STALL_TIME_USEC (10*1000*1000)
 #define MAX_CLIENT_STALL_TIME_USEC (10*1000*1000)
 #define CATCH_UP_CHECK_TIME_USEC   (500*1000)
 #define MAX_RETRIES                16
