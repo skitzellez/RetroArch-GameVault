@@ -135,6 +135,16 @@ public final class PlayActivity extends Activity
       File cores  = linkCores();
       File cfg    = firstConfig();
       systemFiles(core);
+      if (cfg != null)
+      {
+         /* Continue anywhere: closing a game always writes a save state of where it was (states/<core>/<game>
+          * .state.auto); Game Vault puts the one from the Xbox there and sends AUTOLOAD=1 to go on from it.
+          * Any other start begins the game the usual way. */
+         java.util.Map<String, String> set = new java.util.LinkedHashMap<>();
+         set.put("savestate_auto_save", "true");
+         set.put("savestate_auto_load", "1".equals(in.getStringExtra("AUTOLOAD")) ? "true" : "false");
+         setKeys(cfg, set);
+      }
       if ("1".equals(in.getStringExtra("NETPLAY_HOST")) && cfg != null)
          hostThroughRelay(cfg, in.getStringExtra("NETPLAY_RELAY"));
 
@@ -239,6 +249,13 @@ public final class PlayActivity extends Activity
       set.put("netplay_use_mitm_server", "true");
       set.put("netplay_mitm_server", relay);
       set.put("netplay_public_announce", "true");
+      if (setKeys(cfg, set))
+         Log.i(TAG, "hosting through the " + relay + " relay");
+   }
+
+   /* the given settings into the settings file, the rest of it as it was */
+   private static boolean setKeys(File cfg, java.util.Map<String, String> set)
+   {
       StringBuilder out = new StringBuilder();
       try
       {
@@ -261,9 +278,10 @@ public final class PlayActivity extends Activity
       }
       catch (IOException e)
       {
-         Log.w(TAG, "relay setting: " + e);
+         Log.w(TAG, "settings file: " + e);
+         return false;
       }
-      Log.i(TAG, "hosting through the " + relay + " relay");
+      return true;
    }
 
    private File firstConfig()

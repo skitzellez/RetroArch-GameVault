@@ -236,7 +236,16 @@ public final class RetroActivityFuture extends RetroActivityCamera {
     super.onStop();
 
     // If QUITFOCUS parameter was set then completely exit RetroArch when focus is lost
-    if (quitfocus) System.exit(0);
+    if (quitfocus) {
+      // Game Vault: first let the game write its save and save state (android_input_flush_pending_state leaves
+      // "gv_flushed" when it is done), at most 2 seconds
+      java.io.File done = new java.io.File(getFilesDir(), "gv_flushed");
+      long until = System.currentTimeMillis() + 2000;
+      while (!done.exists() && System.currentTimeMillis() < until) {
+        try { Thread.sleep(20); } catch (InterruptedException e) { break; }
+      }
+      System.exit(0);
+    }
   }
 
   @Override

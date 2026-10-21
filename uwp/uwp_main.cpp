@@ -1286,6 +1286,10 @@ static void HomeBeforeStart(std::vector<std::string> *args)
          RARCH_LOG("[Game Vault] Menu pictures from the package: %s\n", packaged.c_str());
       }
    }
+   /* Continue anywhere (Game Vault's vaultlink.inc): closing a game writes a save state of where it was
+    * ("<home>\states\<core>\<game>.state.auto"), which Game Vault for Android can carry on from */
+   if (!s_home.empty())
+      text += "savestate_auto_save = \"true\"\n";
    /* RetroArch's log of each session goes to the drive too (logs\retroarch.log), where a player can pick
     * it up for a problem report */
    if (!s_home.empty())

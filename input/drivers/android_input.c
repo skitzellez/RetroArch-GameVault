@@ -699,8 +699,28 @@ void android_input_flush_pending_state(void)
    if (runloop_st->current_core.flags & RETRO_CORE_FLAG_GAME_LOADED)
       command_event(CMD_EVENT_SAVE_FILES, NULL);
 
+   /* Game Vault (Continue anywhere): a save state of where the game was, as closing it writes one
+    * (<game>.state.auto), since the player leaving it (Home, another app) is how a game ends on a phone */
+   if (     settings->bools.savestate_auto_save
+         && (runloop_st->current_core.flags & RETRO_CORE_FLAG_GAME_LOADED))
+      command_event_save_auto_state();
+
    if (settings->bools.config_save_on_exit)
       command_event(CMD_EVENT_MENU_SAVE_CURRENT_CONFIG, NULL);
+
+   /* Game Vault: "gv_flushed" in the app's files folder tells RetroActivityFuture.onStop that everything is
+    * written, so a QUITFOCUS exit no longer cuts the save off */
+   {
+      struct android_app *app = (struct android_app*)g_android;
+      if (app && app->activity && app->activity->internalDataPath)
+      {
+         char marker[PATH_MAX_LENGTH];
+         FILE *f;
+         snprintf(marker, sizeof(marker), "%s/gv_flushed", app->activity->internalDataPath);
+         if ((f = fopen(marker, "w")))
+            fclose(f);
+      }
+   }
 }
 
 static void android_input_poll_main_cmd(void)
@@ -799,6 +819,13 @@ static void android_input_poll_main_cmd(void)
          {
             android_state_flush_pending = false;
             android_state_flushed       = false;
+            /* Game Vault: the marker of the last pause is for that pause only */
+            if (android_app->activity && android_app->activity->internalDataPath)
+            {
+               char marker[PATH_MAX_LENGTH];
+               snprintf(marker, sizeof(marker), "%s/gv_flushed", android_app->activity->internalDataPath);
+               remove(marker);
+            }
          }
 
 #ifdef HAVE_ANDROID_LIFECYCLE_HOOKS
