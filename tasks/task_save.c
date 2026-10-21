@@ -390,6 +390,9 @@ static void undo_save_state_cb(retro_task_t *task,
  *
  * Close the save state file and finish the task.
  **/
+/* Game Vault: the path of the last state save that was written to the end (uwp_main.cpp, ResumeTick) */
+char content_last_saved_state[PATH_MAX_LENGTH];
+
 static void task_save_handler_finished(retro_task_t *task,
       save_task_state_t *state)
 {
@@ -799,6 +802,7 @@ static void task_save_handler(retro_task_t *task)
       RARCH_LOG("[State] save task COMPLETED for slot %d, path \"%s\" "
             "(%d bytes).\n",
             state->state_slot, state->path, (int)state->size);
+      strlcpy(content_last_saved_state, state->path, sizeof(content_last_saved_state));
 
       task_free_title(task);
 

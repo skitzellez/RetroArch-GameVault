@@ -56,6 +56,8 @@ bool content_save_state(const char *path, bool save_to_disk);
 
 /* Game Vault: a save state written in the background, with no message on screen. */
 bool content_save_state_quiet(const char *path);
+/* Game Vault: the path of the last state save that was written to the end */
+extern char content_last_saved_state[];
 
 /* Automatically save a state if the interval has elapsed. */
 bool content_save_state_automatic(void);

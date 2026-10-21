@@ -834,16 +834,11 @@ static void ResumeTick(void)
    if (slot && !content_save_state_in_progress(NULL))
    {
       std::string state = ResumeDir() + "\\retroarch-" + std::to_string(slot) + ".state";
-      /* only a file written just now: the queue drops a save while another one is busy, and a failed write
-       * leaves the old file (or none) */
-      WIN32_FILE_ATTRIBUTE_DATA d;
-      FILETIME now_ft;
-      GetSystemTimeAsFileTime(&now_ft);
-      uint64_t now_t = ((uint64_t)now_ft.dwHighDateTime << 32) | now_ft.dwLowDateTime, file_t = 0;
-      if (GetFileAttributesExFromAppW(winrt::to_hstring(state).c_str(), GetFileExInfoStandard, &d) &&
-          (d.nFileSizeLow || d.nFileSizeHigh))
-         file_t = ((uint64_t)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
-      if (!file_t || now_t - file_t > 60ull * 10000000ull)
+      /* only a file the save task wrote to the end just now: the queue drops a save while another one is busy,
+       * and a failed write leaves the old file (or none). This compared the file's time with the clock before,
+       * which a drive's own times broke (player 186a: every save COMPLETED, every one taken as "not written",
+       * so Game Vault never had a resume point) */
+      if (state != content_last_saved_state)
       {
          RARCH_LOG("[Game Vault] Resume: the save was not written; the last one stays.\n");
          slot = 0;
@@ -884,6 +879,7 @@ static void ResumeTick(void)
    std::string info = ReadSmallFile(ResumeDir() + "\\retroarch.txt");
    int next = info.find("retroarch-1.state") != std::string::npos ? 2 : 1;
    std::string state = ResumeDir() + "\\retroarch-" + std::to_string(next) + ".state";
+   content_last_saved_state[0] = '\0';
    if (content_save_state_quiet(state.c_str()))
       slot = next;
    else if (!told)
