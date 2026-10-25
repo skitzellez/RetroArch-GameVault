@@ -90,7 +90,7 @@ android {
     // Game Vault for Android through com.retroarch.browser.gamevault.PlayActivity (gamevault/).
     gamevault {
       applicationId 'com.skitzelles.gamevault.retroarch'
-      versionName "1.22.2.49"
+      versionName "1.22.2.73"
       resValue "string", "app_name", "RetroArch for Game Vault"
       buildConfigField "boolean", "PLAY_STORE_BUILD", "false"
 

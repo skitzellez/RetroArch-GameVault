@@ -4,12 +4,15 @@
 RetroArch for Game Vault for Android carries these libretro cores unchanged, as built by the libretro buildbot
 (`https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/`). Each one keeps its own licence; the source of each
 is at the address below. The menu art, controller profiles, touch overlays and core info come from the official
-RetroArch 1.22.2 APK; the system files for Dolphin, PPSSPP, LRPS2 and blueMSX come from
-`https://buildbot.libretro.com/assets/system/`. RetroArch for Game Vault is free and never sold.
+RetroArch 1.22.2 APK; the system files for Dolphin, PPSSPP and blueMSX come from
+`https://buildbot.libretro.com/assets/system/`. ARMSX2's resources (game database, shaders, fonts) come from its
+source (`bin/resources`, GPLv3), with the free PS2 BIOS OpenPS2BIOS 0.2 (MIT,
+https://github.com/TamaribaEmu/OpenPS2BIOS) so PlayStation 2 games start without a BIOS of the player's own;
+a BIOS the player adds to `system/pcsx2/bios` is used instead. RetroArch for Game Vault is free and never sold.
 
 | Core | File | Licence | Source |
 |---|---|---|---|
-| LRPS2 | `pcsx2_libretro_android.so` | GPL | https://github.com/libretro/ps2 |
+| ARMSX2 (PlayStation 2, ARM64 JIT) | `armsx2_libretro_android.so` | GPLv3 | https://github.com/ARMSX2/ARMSX2 |
 | Dolphin | `dolphin_libretro_android.so` | GPLv2+ | https://github.com/libretro/dolphin |
 | Citra | `citra_libretro_android.so` | GPLv2+ | https://github.com/libretro/citra |
 | PCSX-ReARMed | `pcsx_rearmed_libretro_android.so` | GPLv2 | https://github.com/libretro/pcsx_rearmed |

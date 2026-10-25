@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Skitzelles - part of Game Vault, https://github.com/skitzellez/xbox-game-vault
 # The cores built into RetroArch for Game Vault (Android), one per line, as named on the libretro buildbot
 # (<name>_libretro_android.so). Game Vault for Android's Systems.kt picks from these. Sources: see CORES.md.
-pcsx2
+armsx2
 dolphin
 citra
 pcsx_rearmed

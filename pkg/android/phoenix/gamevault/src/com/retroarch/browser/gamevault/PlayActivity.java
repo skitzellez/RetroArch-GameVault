@@ -309,12 +309,39 @@ public final class PlayActivity extends Activity
    private static final String[][] SYSTEM_FILES = {
       { "dolphin",  "gv_sys_dolphin", "dolphin-emu/Sys" },
       { "ppsspp",   "gv_sys_ppsspp",  "PPSSPP" },
-      { "pcsx2",    "gv_sys_lrps2",   "pcsx2/resources" },
+      { "armsx2",   "gv_sys_armsx2",  "pcsx2/armsx2-pack" },
       { "bluemsx",  "gv_sys_bluemsx", "Machines" },
    };
 
+   /* The free PS2 BIOS (OpenPS2BIOS) steps aside while the player has a BIOS of their own in pcsx2/bios (ARMSX2
+    * takes the first valid one it finds, in no set order; it does not look into sub-folders) and comes back when
+    * theirs is gone. */
+   private void freePs2Bios()
+   {
+      File bios  = new File(biosDir(), "pcsx2/bios");
+      File aside = new File(bios, "free");
+      String name = "OpenPS2BIOS-0.2.bin";
+      boolean own = false;
+      File[] fs = bios.listFiles();
+      if (fs != null)
+         for (File f : fs)
+            if (f.isFile() && !f.getName().equals(name) && f.length() >= 4L * 1024 * 1024 && f.length() <= 8L * 1024 * 1024)
+               own = true;
+      File here = new File(bios, name), away = new File(aside, name);
+      if (own && here.isFile())
+      {
+         aside.mkdirs();
+         if (here.renameTo(away))
+            Log.i(TAG, "PS2: the player's own BIOS is used, the free one is set aside");
+      }
+      else if (!own && !here.isFile() && away.isFile() && away.renameTo(here))
+         Log.i(TAG, "PS2: no BIOS of the player's own, the free one is back");
+   }
+
    private void systemFiles(String core)
    {
+      if (core.equals("armsx2"))
+         freePs2Bios();
       for (String[] f : SYSTEM_FILES)
       {
          if (!f[0].equals(core) || new File(biosDir(), f[2]).isDirectory())
@@ -326,6 +353,8 @@ public final class PlayActivity extends Activity
          {
             unzip(in, biosDir());
             Log.i(TAG, "system files for " + core + " unpacked");
+            if (core.equals("armsx2"))
+               freePs2Bios();
          }
          catch (IOException e)
          {

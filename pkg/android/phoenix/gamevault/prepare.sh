@@ -29,10 +29,27 @@ cd "$here"
 for d in assets autoconfig filters info overlays; do cp -r "$x/assets/$d" assets/; done
 rm -rf assets/overlays/borders assets/overlays/effects
 mkdir -p res/raw
-for s in Dolphin PPSSPP LRPS2 blueMSX; do
+for s in Dolphin PPSSPP blueMSX; do
   z="$cache/system/$s.zip"
   [ -s "$z" ] || { mkdir -p "$cache/system"; curl -sfL -o "$z" "https://buildbot.libretro.com/assets/system/$s.zip"; }
   cp "$z" "res/raw/gv_sys_$(echo "$s" | tr 'A-Z' 'a-z').zip"
 done
+# ARMSX2 (PlayStation 2): its resources from its source at the pinned commit, and the free OpenPS2BIOS (MIT) as
+# bios/ - unpacked into RetroArch's system folder as pcsx2/, where the core looks (pcsx2/armsx2-pack marks it done)
+armsx2_commit=90126bd
+a="$cache/armsx2"
+[ -d "$a/bin/resources" ] || { rm -rf "$a"; git clone -q --filter=blob:none --no-checkout https://github.com/ARMSX2/ARMSX2.git "$a" &&
+  git -C "$a" sparse-checkout set bin/resources && git -C "$a" checkout -q "$armsx2_commit"; }
+b="$cache/OpenPS2BIOS-0.2.bin"
+[ -s "$b" ] || curl -sfL -o "$b" https://github.com/TamaribaEmu/OpenPS2BIOS/releases/download/v0.2/OpenPS2BIOS-0.2.bin
+echo "1451bade21b8b162d1092faee567dc4620037cede367792c2e258ec43273c72a  $b" | sha256sum -c - >/dev/null
+p="$cache/armsx2-pack"
+rm -rf "$p"; mkdir -p "$p/pcsx2/bios" "$p/pcsx2/armsx2-pack"
+cp -r "$a/bin/resources" "$p/pcsx2/resources"
+cp "$b" "$p/pcsx2/bios/OpenPS2BIOS-0.2.bin"
+echo "ARMSX2 resources $armsx2_commit + OpenPS2BIOS 0.2 (MIT)" > "$p/pcsx2/armsx2-pack/README.txt"
+cp "$a/armsx2_libretro.info" assets/info/   # newer than the official APK's core info
+rm -f jniLibs/arm64-v8a/libpcsx2_libretro_android.so res/raw/gv_sys_lrps2.zip res/raw/gv_sys_armsx2.zip
+(cd "$p" && ${PYTHON:-python3} -c 'import shutil,sys; shutil.make_archive(sys.argv[1], "zip", ".", "pcsx2")' "$here/res/raw/gv_sys_armsx2")
 ls jniLibs/arm64-v8a | wc -l
 du -sh jniLibs assets res
