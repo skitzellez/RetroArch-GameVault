@@ -28,9 +28,19 @@ source is at the link.
 | fbneo | 1a03a15 | https://github.com/libretro/FBNeo/tree/1a03a15 |
 | stella | 7c4e3b2 | https://github.com/stella-emu/stella/tree/7c4e3b2 |
 | stella | 2c3d702 | https://github.com/stella-emu/stella/tree/2c3d702 |
+| stella | 9bbd209 | libretro buildbot build of https://github.com/stella-emu/stella/tree/9bbd209 (the default before 1.22.2.77) |
 | prosystem | acae250 | https://github.com/libretro/prosystem-libretro/tree/acae250 |
 | prosystem | 8a88014 | https://github.com/libretro/prosystem-libretro/tree/8a88014 |
 | mednafen_pce_fast | 7e9b257 | https://github.com/libretro/beetle-pce-fast-libretro/tree/7e9b257 |
 | handy | fca2392 | https://github.com/libretro/libretro-handy/tree/fca2392 |
 | mednafen_ngp | 139fe34 | https://github.com/libretro/beetle-ngp-libretro/tree/139fe34 |
 | mednafen_wswan | 2aeb47d | https://github.com/libretro/beetle-wswan-libretro/tree/2aeb47d |
+
+## Default cores changed in 1.22.2.77
+
+- Stella: the default `cores\stella_libretro.dll` is now the 2c3d702 build above (the 9bbd209 build sent a padded
+  ROM for games on a network share); 9bbd209 moved to `cores
+etplay\9bbd209\` for online rooms.
+- Azahar: `coreszahar_libretro.dll` is the official Azahar 2126.2 Windows x86-64 libretro build
+  (`azahar-libretro-windows-x86_64-2126.2.zip`, https://github.com/azahar-emu/azahar/tree/2126.2, GPL-2.0), a security update.
+- Everything else in 1.22.2.77 is the 1.22.2.51 package unchanged.
