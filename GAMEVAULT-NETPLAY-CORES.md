@@ -39,8 +39,7 @@ source is at the link.
 ## Default cores changed in 1.22.2.77
 
 - Stella: the default `cores\stella_libretro.dll` is now the 2c3d702 build above (the 9bbd209 build sent a padded
-  ROM for games on a network share); 9bbd209 moved to `cores
-etplay\9bbd209\` for online rooms.
-- Azahar: `coreszahar_libretro.dll` is the official Azahar 2126.2 Windows x86-64 libretro build
+  ROM for games on a network share); 9bbd209 moved to `cores\netplay\9bbd209\` for online rooms.
+- Azahar: `cores\azahar_libretro.dll` is the official Azahar 2126.2 Windows x86-64 libretro build
   (`azahar-libretro-windows-x86_64-2126.2.zip`, https://github.com/azahar-emu/azahar/tree/2126.2, GPL-2.0), a security update.
 - Everything else in 1.22.2.77 is the 1.22.2.51 package unchanged.
