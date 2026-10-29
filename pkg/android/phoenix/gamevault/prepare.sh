@@ -51,5 +51,13 @@ echo "ARMSX2 resources $armsx2_commit + OpenPS2BIOS 0.2 (MIT)" > "$p/pcsx2/armsx
 cp "$a/armsx2_libretro.info" assets/info/   # newer than the official APK's core info
 rm -f jniLibs/arm64-v8a/libpcsx2_libretro_android.so res/raw/gv_sys_lrps2.zip res/raw/gv_sys_armsx2.zip
 (cd "$p" && ${PYTHON:-python3} -c 'import shutil,sys; shutil.make_archive(sys.argv[1], "zip", ".", "pcsx2")' "$here/res/raw/gv_sys_armsx2")
+# LINK PLAY: our own builds, the very ones the Xbox Game Vault hosts link rooms with (rooms only open between equal
+# builds): Gambatte Link (skitzellez/Gambatte-GameVault, tag gv-link-6f367fe) and gpSP 5819380, each built with the
+# NDK at that commit (ndk-build APP_ABI=arm64-v8a in libgambatte/libretro/jni and in jni/). LINK_CORES: the folder
+# with both sources (default: the Xbox build's deps/netcores/src).
+lc=${LINK_CORES:-$here/../../../../../deps/netcores/src}
+cp "$lc/gambatte-link/libgambatte/libretro/libs/arm64-v8a/libretro.so" jniLibs/arm64-v8a/libgambatte_link_libretro_android.so
+cp "$lc/gpsp/libs/arm64-v8a/libretro.so" jniLibs/arm64-v8a/libgpsp_libretro_android.so
+sed 's/^display_name = .*/display_name = "Nintendo - Game Boy \/ Color (Gambatte Link)"/; s/^corename = .*/corename = "Gambatte Link"/' assets/info/gambatte_libretro.info > assets/info/gambatte_link_libretro.info
 ls jniLibs/arm64-v8a | wc -l
 du -sh jniLibs assets res

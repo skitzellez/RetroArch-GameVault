@@ -28,6 +28,8 @@ a BIOS the player adds to `system/pcsx2/bios` is used instead. RetroArch for Gam
 | Mesen | `mesen_libretro_android.so` | GPLv3 | https://github.com/libretro/Mesen |
 | FCEUmm (NES online: the build Xbox and PC rooms use) | `fceumm_libretro_android.so` | GPLv2 | https://github.com/libretro/libretro-fceumm |
 | Gambatte | `gambatte_libretro_android.so` | GPLv2 | https://github.com/libretro/gambatte-libretro |
+| Gambatte Link (link play: our build, the one Xbox link rooms use) | `gambatte_link_libretro_android.so` | GPLv2 | https://github.com/skitzellez/Gambatte-GameVault (tag gv-link-6f367fe) |
+| gpSP (GBA Pokemon link play: the build Xbox rooms use, 5819380) | `gpsp_libretro_android.so` | GPLv2 | https://github.com/libretro/gpsp |
 | Beetle VB | `mednafen_vb_libretro_android.so` | GPLv2 | https://github.com/libretro/beetle-vb-libretro |
 | PokeMini | `pokemini_libretro_android.so` | GPLv3 | https://github.com/libretro/PokeMini |
 | PicoDrive | `picodrive_libretro_android.so` | MAME | https://github.com/libretro/picodrive |
