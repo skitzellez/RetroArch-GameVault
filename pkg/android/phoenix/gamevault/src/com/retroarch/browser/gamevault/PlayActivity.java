@@ -145,6 +145,8 @@ public final class PlayActivity extends Activity
          set.put("savestate_auto_load", "1".equals(in.getStringExtra("AUTOLOAD")) ? "true" : "false");
          setKeys(cfg, set);
       }
+      if (cfg != null)
+         touchControls(cfg, in.getStringExtra("CONTROLS"));
       if ("1".equals(in.getStringExtra("NETPLAY_HOST")) && cfg != null)
          hostThroughRelay(cfg, in.getStringExtra("NETPLAY_RELAY"));
 
@@ -251,6 +253,67 @@ public final class PlayActivity extends Activity
       set.put("netplay_public_announce", "true");
       if (setKeys(cfg, set))
          Log.i(TAG, "hosting through the " + relay + " relay");
+   }
+
+   /* The player's own touch buttons from Game Vault (TouchControls), or, without them, the overlay they had before.
+    * What was there before ours is kept in gv_controls/previous.txt. */
+   private void touchControls(File cfg, String layout)
+   {
+      File dir      = new File(getExternalFilesDir(null), "gv_controls");
+      File previous = new File(dir, "previous.txt");
+      String now    = getKey(cfg, "input_overlay");
+      boolean ours  = now != null && now.contains("/gv_controls/");
+      File made     = TouchControls.write(this, layout);
+      java.util.Map<String, String> set = new java.util.LinkedHashMap<>();
+      if (made != null)
+      {
+         if (!ours)
+            try (OutputStream o = new FileOutputStream(previous))
+            {
+               o.write((now == null ? "" : now).getBytes("UTF-8"));
+            }
+            catch (IOException e)
+            {
+               Log.w(TAG, "touch controls: " + e);
+            }
+         set.put("input_overlay", made.getPath());
+         set.put("input_overlay_enable", "true");
+         set.put("input_overlay_auto_rotate", "true");
+      }
+      else if (ours)
+      {
+         String back = "";
+         try
+         {
+            back = new String(java.nio.file.Files.readAllBytes(previous.toPath()), "UTF-8").trim();
+         }
+         catch (IOException e)
+         {
+            /* RetroArch's own overlay ("" = its default) */
+         }
+         set.put("input_overlay", back);
+      }
+      if (!set.isEmpty())
+         setKeys(cfg, set);
+   }
+
+   /* a setting's value from the settings file, or null */
+   private static String getKey(File cfg, String key)
+   {
+      try
+      {
+         for (String line : new String(java.nio.file.Files.readAllBytes(cfg.toPath()), "UTF-8").split("\n"))
+         {
+            String[] kv = line.split("=", 2);
+            if (kv.length == 2 && kv[0].trim().equals(key))
+               return kv[1].trim().replaceAll("^\"|\"$", "");
+         }
+      }
+      catch (IOException e)
+      {
+         /* no file yet */
+      }
+      return null;
    }
 
    /* the given settings into the settings file, the rest of it as it was */
