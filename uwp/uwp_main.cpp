@@ -874,6 +874,22 @@ static void ResumeTick(void)
    if (netplay_driver_ctl(RARCH_NETPLAY_CTL_IS_ENABLED, NULL))
       return;
 #endif
+   /* a very big state (FinalBurn Neo's Cave CV1000 games: 150 MB) stopped the game right after it was written,
+    * every time (player 9446, DoDonPachi SaiDaiOuJou); RetroArch started on its own, with no resume saves, played
+    * it fine. Such games get no resume point. Looked at once per game: the core counts its state for this. */
+   static std::string sized;
+   static bool too_big = false;
+   if (sized != game)
+   {
+      size_t size = core_serialize_size();
+      sized       = game;
+      too_big     = size > 100u * 1024 * 1024;
+      if (too_big)
+         RARCH_LOG("[Game Vault] Resume: this game's save state is too big (%u MB); no resume point.\n",
+               (unsigned)(size >> 20));
+   }
+   if (too_big)
+      return;
    CreateDirectoryFromAppW(winrt::to_hstring(ResumeDir()).c_str(), NULL);
    /* the other file than the one retroarch.txt names now */
    std::string info = ReadSmallFile(ResumeDir() + "\\retroarch.txt");
