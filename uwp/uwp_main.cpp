@@ -754,6 +754,11 @@ static std::string ReadSmallFile(const std::string &path)
  * game again with "resume=1" in the link: the state is loaded a moment after the game has started.
  * Not during online play (both sides must stay the same), and not for cores without save states. */
 static bool s_resume_load;   /* resume=1 in the link: load the resume state once the game runs */
+/* noresume=1 in the link: no resume saves for this game. FinalBurn Neo's Cave games (Cave 68k and CV1000 boards)
+ * stopped right after the first one, every time, whatever the state's size (player 9446: DoDonPachi, ESP Ra.De.,
+ * Guwange at ~64 s, 296 KB states; DoDonPachi SaiDaiOuJou 150 MB), while his other FinalBurn Neo games went on.
+ * Game Vault asks for it for those boards. */
+static bool s_no_resume;
 
 static std::string ResumeDir(void)
 {
@@ -890,6 +895,16 @@ static void ResumeTick(void)
    }
    if (too_big)
       return;
+   if (s_no_resume)
+   {
+      static std::string said;
+      if (said != game)
+      {
+         said = game;
+         RARCH_LOG("[Game Vault] Resume: no resume saves for this game (asked by Game Vault).\n");
+      }
+      return;
+   }
    CreateDirectoryFromAppW(winrt::to_hstring(ResumeDir()).c_str(), NULL);
    /* the other file than the one retroarch.txt names now */
    std::string info = ReadSmallFile(ResumeDir() + "\\retroarch.txt");
@@ -1839,6 +1854,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       unsigned i;
       std::string home, relay;
       s_resume_load = false;   /* resume=1 below, for this start only */
+      s_no_resume   = false;   /* noresume=1 too */
       s_titleshot   = false;   /* titleshot=1 too */
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
       GvPlayReset();             /* style=, seats=, kidend= (gv_play.inc) */
@@ -1888,6 +1904,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             multitap = arg.Value() == L"1";
          else if (arg.Name() == L"resume")
             s_resume_load = arg.Value() == L"1";
+         else if (arg.Name() == L"noresume")
+            s_no_resume = arg.Value() == L"1";
          else if (arg.Name() == L"titleshot")
             s_titleshot = arg.Value() == L"1";
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
