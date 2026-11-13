@@ -759,6 +759,9 @@ static bool s_resume_load;   /* resume=1 in the link: load the resume state once
  * Guwange at ~64 s, 296 KB states; DoDonPachi SaiDaiOuJou 150 MB), while his other FinalBurn Neo games went on.
  * Game Vault asks for it for those boards. */
 static bool s_no_resume;
+/* msx=<machine> in Game Vault's link (1.22.2.98): the MSX machine blueMSX starts this game on (MSX, MSX2, MSX2+,
+ * MSXturboR), from the folder the game is in; without it blueMSX picks one by itself (Auto). Only these names. */
+static std::string s_msx_machine;
 
 static std::string ResumeDir(void)
 {
@@ -1269,6 +1272,41 @@ static void NetplayCoreOptions(const std::vector<std::string> &args)
    }
 }
 
+/* Game Vault 1.22.2.98: blueMSX's machine for this start (msx= in the link, else Auto), set in its options file before
+ * the game loads (the core reads it then). Game Vault sends a machine only when its BIOS is in the bios folder. */
+static void MsxCoreOptions(const std::vector<std::string> &args)
+{
+   bool bluemsx = false;
+   for (size_t i = 0; i + 1 < args.size(); i++)
+      bluemsx |= args[i] == "-L" && args[i + 1].find("bluemsx") != std::string::npos;
+   if (!bluemsx)
+      return;
+   const std::string dir  = LocalStateDir() + "\\config\\blueMSX";
+   const std::string path = dir + "\\blueMSX.opt";
+   CreateDirectoryFromAppW(winrt::to_hstring(LocalStateDir() + "\\config").c_str(), NULL);
+   CreateDirectoryFromAppW(winrt::to_hstring(dir).c_str(), NULL);
+   std::string text = ReadSmallFile(path), out;
+   for (size_t at = 0; at < text.size();)
+   {
+      size_t end       = text.find('\n', at);
+      end              = end == std::string::npos ? text.size() : end + 1;
+      std::string line = text.substr(at, end - at);
+      if (line.compare(0, 15, "bluemsx_msxtype") != 0)
+         out += line;
+      at = end;
+   }
+   if (!out.empty() && out.back() != '\n')
+      out += "\n";
+   const std::string machine = s_msx_machine.empty() ? "Auto" : s_msx_machine;
+   out += "bluemsx_msxtype = \"" + machine + "\"\n";
+   if (FILE *f = fopen(path.c_str(), "wb"))
+   {
+      fwrite(out.data(), 1, out.size(), f);
+      fclose(f);
+      RARCH_LOG("[Game Vault] MSX machine: %s\n", machine.c_str());
+   }
+}
+
 /* Before start-up: the folders go in a small extra config, given to RetroArch as --appendconfig. */
 static void HomeBeforeStart(std::vector<std::string> *args)
 {
@@ -1290,6 +1328,7 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    if (!multitap.empty())
       text += "input_libretro_device_p2 = \"" + multitap + "\"\n";
    NetplayCoreOptions(*args);
+   MsxCoreOptions(*args);
    /* The menu's pictures and fonts (assets\ozone: the selection bar, the icons) come with this package. A console
     * never had them in RetroArch's own folder, so the menu showed no selection at all. The package's copy is used
     * whenever the folder set in the settings lacks them (its path changes with each update, hence every start).
@@ -1424,6 +1463,7 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
             if (!nick.empty())
                configuration_set_string(settings, settings->paths.username, nick.c_str());
             NetplayCoreOptions(argvTmp);   /* before the game loads: the core reads its options then */
+            MsxCoreOptions(argvTmp);
             std::string multitap = MultitapChange();   /* before the game loads: the core takes port 2's device then */
             if (!multitap.empty())
             {
@@ -1855,6 +1895,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       std::string home, relay;
       s_resume_load = false;   /* resume=1 below, for this start only */
       s_no_resume   = false;   /* noresume=1 too */
+      s_msx_machine.clear();   /* msx= too */
       s_titleshot   = false;   /* titleshot=1 too */
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
       GvPlayReset();             /* style=, seats=, kidend= (gv_play.inc) */
@@ -1906,6 +1947,12 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             s_resume_load = arg.Value() == L"1";
          else if (arg.Name() == L"noresume")
             s_no_resume = arg.Value() == L"1";
+         else if (arg.Name() == L"msx")
+         {
+            std::string m = winrt::to_string(arg.Value());
+            if (m == "MSX" || m == "MSX2" || m == "MSX2+" || m == "MSXturboR")
+               s_msx_machine = m;
+         }
          else if (arg.Name() == L"titleshot")
             s_titleshot = arg.Value() == L"1";
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
