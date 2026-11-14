@@ -1239,6 +1239,8 @@ static void GvDefaults(void)
  * machines in step), and every player must run the same BIOS, or the games drift apart: one player's own BIOS file
  * against another's built-in one is enough. So an online start of PCSX-ReARMed always uses its built-in BIOS (HLE).
  * PCSX-ReARMed plays nothing else in Game Vault, so the setting stays. */
+#include "gv_res.inc"   /* Game Vault: resolution of 3D games (res=, n64wide=) */
+
 static void NetplayCoreOptions(const std::vector<std::string> &args)
 {
    bool online = false, pcsx = false;
@@ -1330,6 +1332,7 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    if (!multitap.empty())
       text += "input_libretro_device_p2 = \"" + multitap + "\"\n";
    NetplayCoreOptions(*args);
+   GvResolutionOptions(*args);
    MsxCoreOptions(*args);
    /* The menu's pictures and fonts (assets\ozone: the selection bar, the icons) come with this package. A console
     * never had them in RetroArch's own folder, so the menu showed no selection at all. The package's copy is used
@@ -1465,6 +1468,7 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
             if (!nick.empty())
                configuration_set_string(settings, settings->paths.username, nick.c_str());
             NetplayCoreOptions(argvTmp);   /* before the game loads: the core reads its options then */
+            GvResolutionOptions(argvTmp);
             MsxCoreOptions(argvTmp);
             std::string multitap = MultitapChange();   /* before the game loads: the core takes port 2's device then */
             if (!multitap.empty())
@@ -1899,6 +1903,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       s_no_resume   = false;   /* noresume=1 too */
       s_msx_machine.clear();   /* msx= too */
       s_titleshot   = false;   /* titleshot=1 too */
+      s_gvres.clear();           /* res= / n64wide=: this start only (gv_res.inc) */
+      s_n64wide.clear();
       GvCheevosReset();          /* cheevos= too (gv_cheevos.inc) */
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
       GvPlayReset();             /* style=, seats=, kidend= (gv_play.inc) */
@@ -1958,6 +1964,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
          }
          else if (arg.Name() == L"cheevos")
             s_cheevos_file = winrt::to_string(arg.Value());
+         else if (GvResolutionArg(arg.Name(), arg.Value()))
+            ;   /* gv_res.inc */
          else if (arg.Name() == L"titleshot")
             s_titleshot = arg.Value() == L"1";
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
