@@ -594,6 +594,8 @@ static void ReadNetCred(void)
       RARCH_LOG("[Game Vault] Network games from %s, share %s.\n", s_net.server, s_net.share);
 }
 
+#include "gv_cheevos.inc"   /* Game Vault: RetroAchievements account from Game Vault (cheevos=) */
+
 extern "C" void uwp_gamevault_smb_override(struct smb_settings *cfg)
 {
    if (!s_net.set)
@@ -1897,6 +1899,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       s_no_resume   = false;   /* noresume=1 too */
       s_msx_machine.clear();   /* msx= too */
       s_titleshot   = false;   /* titleshot=1 too */
+      GvCheevosReset();          /* cheevos= too (gv_cheevos.inc) */
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
       GvPlayReset();             /* style=, seats=, kidend= (gv_play.inc) */
 #endif
@@ -1953,6 +1956,8 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
             if (m == "MSX" || m == "MSX2" || m == "MSX2+" || m == "MSXturboR")
                s_msx_machine = m;
          }
+         else if (arg.Name() == L"cheevos")
+            s_cheevos_file = winrt::to_string(arg.Value());
          else if (arg.Name() == L"titleshot")
             s_titleshot = arg.Value() == L"1";
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
@@ -1961,6 +1966,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
 #endif
       }
       ReadNetCred();
+      ReadCheevosCred();
       s_home = home;
       s_fps  = fps;
       /* only for this start; a server name is lower-case letters only (it goes into a settings file) */

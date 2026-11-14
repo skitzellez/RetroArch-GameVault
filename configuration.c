@@ -34,6 +34,13 @@
 #include "file_path_special.h"
 #include "command.h"
 #include "configuration.h"
+
+#ifdef __WINRT__
+/* Game Vault (uwp/gv_cheevos.inc): the player's own achievement settings, written instead of the account Game
+ * Vault handed over for this start */
+const char *uwp_gamevault_cheevos_saved_string(const char *ident);
+int uwp_gamevault_cheevos_saved_bool(const char *ident);
+#endif
 #include "content.h"
 #include "config.def.h"
 #include "config.features.h"
@@ -8642,9 +8649,16 @@ bool config_save_file(const char *path)
             if (   !minimal
                 || !string_is_equal(array_settings[i].ptr, array_defaults[i].ptr))
             {
+               const char *val = array_settings[i].ptr;
+#ifdef __WINRT__
+               /* Game Vault: never the account Game Vault handed over (uwp/gv_cheevos.inc) */
+               const char *own = uwp_gamevault_cheevos_saved_string(array_settings[i].ident);
+               if (own)
+                  val = own;
+#endif
                config_set_string(conf,
                      array_settings[i].ident,
-                     array_settings[i].ptr);
+                     val);
             }
             else
             {
@@ -8835,8 +8849,15 @@ bool config_save_file(const char *path)
             if (   !minimal
                 || *bool_settings[i].ptr != *bool_defaults[i].ptr)
             {
+               bool val = *bool_settings[i].ptr;
+#ifdef __WINRT__
+               /* Game Vault: the player's own achievement switches (uwp/gv_cheevos.inc) */
+               int own = uwp_gamevault_cheevos_saved_bool(bool_settings[i].ident);
+               if (own >= 0)
+                  val = own == 1;
+#endif
                config_set_string(conf, bool_settings[i].ident,
-                     *bool_settings[i].ptr
+                     val
                      ? "true" : "false");
             }
             else

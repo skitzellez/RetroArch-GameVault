@@ -56,6 +56,14 @@
 #endif
 
 #include "cheevos.h"
+
+#ifdef __WINRT__
+/* Game Vault (uwp/gv_cheevos.inc): the RetroAchievements account Game Vault handed over */
+void uwp_gamevault_cheevos_apply(settings_t *settings);
+static int uwp_gamevault_cheevos_apply_c(settings_t *settings) { uwp_gamevault_cheevos_apply(settings); return 0; }
+#else
+static int uwp_gamevault_cheevos_apply_c(settings_t *settings) { (void)settings; return 0; }
+#endif
 #include "cheevos_client.h"
 #include "cheevos_menu.h"
 #include "cheevos_locals.h"
@@ -1832,8 +1840,8 @@ bool rcheevos_load(const void *data)
 {
    const struct retro_game_info *info = (const struct retro_game_info*)data;
    settings_t *settings               = config_get_ptr();
-   bool cheevos_enable                = settings
-      && settings->bools.cheevos_enable;
+   bool cheevos_enable                = (uwp_gamevault_cheevos_apply_c(settings), settings
+      && settings->bools.cheevos_enable);
 
 #ifdef HAVE_THREADS
    /* Bump the load generation. Any background callback from a
