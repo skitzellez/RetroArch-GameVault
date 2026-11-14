@@ -7,7 +7,7 @@
  * (N64 only). Written into the core's options file before the game loads; a link without them leaves the files alone
  * (the player's own choice in RetroArch's menu stays). Included by uwp_main.cpp. */
 
-static std::string s_gvres, s_n64wide;
+static std::string s_gvres, s_n64res, s_n64wide;   /* res= (PS1, 3DS, 3DO); n64res= / n64wide= (N64, its own setting) */
 
 /* rewrites "key = value" lines of one core options file (config\<dir>\<file>), keeping every other line */
 static void GvSetCoreOptions(const char *dir_name, const char *file_name,
@@ -46,7 +46,7 @@ static void GvSetCoreOptions(const char *dir_name, const char *file_name,
 
 static void GvResolutionOptions(const std::vector<std::string> &args)
 {
-   if (s_gvres.empty() && s_n64wide.empty())
+   if (s_gvres.empty() && s_n64res.empty() && s_n64wide.empty())
       return;
    std::string core;
    for (size_t i = 0; i + 1 < args.size(); i++)
@@ -60,11 +60,12 @@ static void GvResolutionOptions(const std::vector<std::string> &args)
 
    if (core.find("mupen64plus") != std::string::npos)
    {
-      if (r)
+      if (!s_n64res.empty())   /* 1 = the core's own 640x480, 2 = 1280x960 (1920x1080 wide), 4 = 2880x2160 (3840x2160 wide) */
       {
+         const bool two = s_n64res == "2", four = s_n64res == "4";
          set.push_back({"mupen64plus-EnableNativeResFactor", "0"});   /* else it would win over the sizes */
-         set.push_back({"mupen64plus-43screensize", pick("640x480", "960x720", "1440x1080", "2880x2160")});
-         set.push_back({"mupen64plus-169screensize", pick("960x540", "1280x720", "1920x1080", "3840x2160")});
+         set.push_back({"mupen64plus-43screensize", four ? "2880x2160" : two ? "1280x960" : "640x480"});
+         set.push_back({"mupen64plus-169screensize", four ? "3840x2160" : two ? "1920x1080" : "960x540"});
       }
       if (!s_n64wide.empty())   /* GLideN64's "16:9 adjusted": the 3D view is widened, not stretched */
          set.push_back({"mupen64plus-aspect", s_n64wide == "1" ? "16:9 adjusted" : "4:3"});
@@ -103,10 +104,7 @@ static bool GvResolutionArg(const winrt::hstring &name, const winrt::hstring &va
    if (name == L"res" && (value == L"1" || value == L"2" || value == L"3" || value == L"4"))
       s_gvres = winrt::to_string(value);
    else if (name == L"n64res" && (value == L"1" || value == L"2" || value == L"4"))
-   {
-      if (s_gvres.empty())   /* the older N64-only setting: 2 was 1280x960, close to Full HD */
-         s_gvres = value == L"1" ? "1" : value == L"2" ? "3" : "4";
-   }
+      s_n64res = winrt::to_string(value);
    else if (name == L"n64wide" && (value == L"0" || value == L"1"))
       s_n64wide = winrt::to_string(value);
    else

@@ -1904,6 +1904,7 @@ void App::ParseProtocolArgs(IActivatedEventArgs const& args, int *argc, std::vec
       s_msx_machine.clear();   /* msx= too */
       s_titleshot   = false;   /* titleshot=1 too */
       s_gvres.clear();           /* res= / n64wide=: this start only (gv_res.inc) */
+      s_n64res.clear();
       s_n64wide.clear();
       GvCheevosReset();          /* cheevos= too (gv_cheevos.inc) */
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
