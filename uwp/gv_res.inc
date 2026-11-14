@@ -60,7 +60,13 @@ static void GvResolutionOptions(const std::vector<std::string> &args)
 
    if (core.find("mupen64plus") != std::string::npos)
    {
-      if (!s_n64res.empty())   /* 1 = the core's own 640x480, 2 = 1280x960 (1920x1080 wide), 4 = 2880x2160 (3840x2160 wide) */
+      if (r)   /* Resolution (every RetroArch game) wins over the older N64-only size */
+      {
+         set.push_back({"mupen64plus-EnableNativeResFactor", "0"});   /* else it would win over the sizes */
+         set.push_back({"mupen64plus-43screensize", pick("640x480", "960x720", "1440x1080", "2880x2160")});
+         set.push_back({"mupen64plus-169screensize", pick("960x540", "1280x720", "1920x1080", "3840x2160")});
+      }
+      else if (!s_n64res.empty())   /* 1 = the core's own 640x480, 2 = 1280x960 (1920x1080 wide), 4 = 2880x2160 (3840x2160 wide) */
       {
          const bool two = s_n64res == "2", four = s_n64res == "4";
          set.push_back({"mupen64plus-EnableNativeResFactor", "0"});   /* else it would win over the sizes */
