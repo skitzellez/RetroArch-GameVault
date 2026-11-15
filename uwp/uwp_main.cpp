@@ -1534,6 +1534,12 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
     * (SwanStation: "Switching to software renderer", PS1 without HD). So a game sent with the start is held back
     * and loaded once the video is ready, the way a game sent to an open RetroArch is. Online rooms (--host /
     * --connect) still start the old way. */
+   /* Game Vault: the console gives a started app only a short time to show its window; RetroArch's start-up and the
+    * game load below can take longer (slow USB drive, network share, a big game, the first start after an update),
+    * and the console then closes it with "RetroArch took too long to start (0x8027025a)". So the window is shown
+    * now, before that work, as Microsoft's own app template does; the second Activate() at the end does nothing. */
+   CoreWindow::GetForCurrentThread().Activate();
+
    std::string held_core, held_content;
    if (is_running_on_xbox())
    {
