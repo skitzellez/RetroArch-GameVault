@@ -324,6 +324,17 @@
       <DeploymentContent>true</DeploymentContent>
       <Link>assets\gv-shaders\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
+    <!-- Game Vault: the screen frames, our own art (uwp/make_gv_frames.py), put on by uwp/gv_play.inc when Game Vault sends frame= -->
+    <None Include="assets\gv-frames\**\*">
+      <DeploymentContent>true</DeploymentContent>
+      <Link>assets\gv-frames\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+    <!-- Game Vault: the full libretro/slang-shaders library (each shader keeps its own licence), the shader folder
+         while the player has none of their own (uwp_main.cpp) -->
+    <None Include="assets\shaders_slang\**\*">
+      <DeploymentContent>true</DeploymentContent>
+      <Link>assets\shaders_slang\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
     <None Include="RetroArch-msvcUWP_TemporaryKey.pfx" />
   </ItemGroup>
   <ItemGroup Condition="'$(Configuration)' == 'ReleaseANGLE' or '$(Configuration)' == 'DebugANGLE'">

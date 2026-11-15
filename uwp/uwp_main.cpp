@@ -1357,6 +1357,27 @@ static void HomeBeforeStart(std::vector<std::string> *args)
          RARCH_LOG("[Game Vault] Menu pictures from the package: %s\n", packaged.c_str());
       }
    }
+   /* The full libretro shader library (libretro/slang-shaders, 2,600+ presets) comes in the package as
+    * assets\shaders_slang, so Quick Menu > Shaders lists them all. RetroArch's own shader folder is in LocalState
+    * (an empty folder on a console, filled only by the Online Updater); the packaged one is used while that folder
+    * has no library of its own, so nothing is copied onto the console's small app storage. Game and core presets
+    * the player saves still go to the config folder. */
+   {
+      std::string packaged = winrt::to_string(winrt::Windows::ApplicationModel::Package::Current()
+            .InstalledLocation().Path()) + "\\assets\\shaders_slang";
+      std::string set      = FolderOf(CfgValue(cfg, "video_shader_dir"), "shaders");
+      WIN32_FILE_ATTRIBUTE_DATA d;
+      bool setHasLibrary = GetFileAttributesExFromAppW(winrt::to_hstring(set + "\\crt").c_str(),
+            GetFileExInfoStandard, &d) != 0 ||
+            GetFileAttributesExFromAppW(winrt::to_hstring(set + "\\shaders_slang\\crt").c_str(),
+            GetFileExInfoStandard, &d) != 0;   /* the Online Updater's download */
+      if (!setHasLibrary &&
+          GetFileAttributesExFromAppW(winrt::to_hstring(packaged + "\\crt").c_str(), GetFileExInfoStandard, &d))
+      {
+         text += "video_shader_dir = \"" + packaged + "\"\n";
+         RARCH_LOG("[Game Vault] Shader library from the package: %s\n", packaged.c_str());
+      }
+   }
    /* Continue anywhere (Game Vault's vaultlink.inc): closing a game writes a save state of where it was
     * ("<home>\states\<core>\<game>.state.auto"), which Game Vault for Android can carry on from */
    if (!s_home.empty())
