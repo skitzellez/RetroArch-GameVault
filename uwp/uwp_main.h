@@ -98,6 +98,9 @@ namespace RetroArchUWP
       bool m_startNow = false;
       winrt::Windows::ApplicationModel::Core::CoreApplicationView m_startView{nullptr};
       winrt::Windows::ApplicationModel::Activation::IActivatedEventArgs m_startArgs{nullptr};
+      /* Game Vault: the game sent with the start, loaded by Run() once a few frames are on screen */
+      std::string m_heldCore, m_heldContent;
+      unsigned m_heldFrames = 0;
       bool m_windowClosed;
       bool m_windowVisible;
       bool m_windowFocused;

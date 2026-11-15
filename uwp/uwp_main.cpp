@@ -453,6 +453,19 @@ void App::Run()
 
       ret = runloop_iterate();
 
+      if (!m_heldContent.empty() && ++m_heldFrames >= 10)   /* the game sent with the start, see OnActivated */
+      {
+         std::string core = m_heldCore, content = m_heldContent;
+         m_heldCore.clear();
+         m_heldContent.clear();
+         if (strncmp(content.c_str(), "smb://", 6) == 0)
+            retroarch_smb_init();
+         content_ctx_info_t content_info = {0};
+         RARCH_LOG("[Game Vault] Game loaded after the first frames: %s with %s\n", content.c_str(), core.c_str());
+         task_push_load_content_with_new_core_from_companion_ui(
+               core.c_str(), content.c_str(), NULL, NULL, NULL, &content_info, NULL, NULL);
+      }
+
       task_queue_check();
 
       DiscSwapTick();
@@ -1639,15 +1652,15 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
          command_event(CMD_EVENT_REINIT, NULL);
    }
 
-   if (!held_content.empty())   /* the game held back above, now that the video is ready */
+   /* Game Vault: the game held back above is loaded by Run() once a few frames are on screen. The console expects
+    * a picture soon after a start; a slow USB drive made the load alone take 13 s (0.25 s per file), so a load
+    * before the first frame left the player with "took too long to start" or, once that was fixed, RetroArch
+    * suspended on a black screen. A game loaded from RetroArch's own menu always worked: the menu was up. */
+   if (!held_content.empty())
    {
-      if (strncmp(held_content.c_str(), "smb://", 6) == 0)
-         retroarch_smb_init();
-      content_ctx_info_t content_info = {0};
-      RARCH_LOG("[Game Vault] Game loaded after the video was ready: %s with %s\n", held_content.c_str(),
-            held_core.c_str());
-      task_push_load_content_with_new_core_from_companion_ui(
-            held_core.c_str(), held_content.c_str(), NULL, NULL, NULL, &content_info, NULL, NULL);
+      m_heldCore    = held_core;
+      m_heldContent = held_content;
+      m_heldFrames  = 0;
    }
 
    /* Run() won't start until the CoreWindow is activated. */
