@@ -148,13 +148,17 @@ static void GvApplyStyle(void)
          RARCH_LOG("[Game Vault] Screen style: none.\n");
       return;
    }
+   /* Cores that draw with OpenGL (N64 Mupen64Plus-Next, PS1 Beetle HW) run on RetroArch's "gl" driver, which takes
+    * GLSL shaders, not slang: FSR comes as fsr.glslp for them (the other styles exist only as slang) */
+   const bool glsl  = s_gv_style == "fsr" && string_is_equal(video_driver_get_ident(), "gl");
+   const char *ext  = glsl ? ".glslp" : ".slangp";
    std::string preset = winrt::to_string(winrt::Windows::ApplicationModel::Package::Current()
-         .InstalledLocation().Path()) + "\\assets\\gv-shaders\\" + s_gv_style + ".slangp";
+         .InstalledLocation().Path()) + "\\assets\\gv-shaders\\" + s_gv_style + ext;
    if (s_gv_style == "fsr" && s_gv_fsr_pct)
    {
       /* Game Vault's FSR strength: a preset in LocalState that points at ours and changes only its Sharpness
        * (percent, the same number; the shader gives RCAS (100 - %) / 50). Quick Menu > Sharpness changes it live. */
-      std::string own = LocalStateDir() + "\\config\\gv-fsr.slangp";
+      std::string own = LocalStateDir() + "\\config\\gv-fsr" + ext;
       if (FILE *f = fopen(own.c_str(), "w"))
       {
          fprintf(f, "#reference \"%s\"\nGV_SHARPNESS = \"%d.0\"\n", preset.c_str(), s_gv_fsr_pct);
@@ -164,7 +168,7 @@ static void GvApplyStyle(void)
       }
    }
    configuration_set_bool(settings, settings->bools.video_shader_enable, true);
-   if (video_shader_apply_shader(settings, RARCH_SHADER_SLANG, preset.c_str(), false))
+   if (video_shader_apply_shader(settings, glsl ? RARCH_SHADER_GLSL : RARCH_SHADER_SLANG, preset.c_str(), false))
       RARCH_LOG("[Game Vault] Screen style: %s.\n", s_gv_style.c_str());
    else
       RARCH_LOG("[Game Vault] Screen style: %s could not be used with this video driver.\n", s_gv_style.c_str());
