@@ -12,6 +12,7 @@
 #include "../gfx/video_shader_parse.h"
 
 static std::string s_gv_style;     /* style= of the last link */
+static bool s_gv_fsr;              /* fsr=1: Sharper picture (FSR), sent for 3D systems only (assets\gv-shaderssr.slangp) */
 static std::string s_gv_seats;     /* seats= */
 static long long s_gv_kidend;      /* kidend=, 0 = none */
 static bool s_gv_resume_now;       /* ResumeTick: save now (the play time is over) */
@@ -20,6 +21,7 @@ static bool s_gv_keep_resume;      /* Uninitialize: keep the resume save (closed
 static void GvPlayReset(void)
 {
    s_gv_style.clear();
+   s_gv_fsr = false;
    s_gv_seats.clear();
    s_gv_kidend = 0;
 }
@@ -30,8 +32,13 @@ static bool GvPlayArg(const winrt::hstring &name, const winrt::hstring &value)
    std::string v = winrt::to_string(value);
    if (name == L"style")
    {
-      if (v == "crt" || v == "lcd" || v == "sharp" || v == "none")
+      if (v == "crt" || v == "lcd" || v == "sharp" || v == "none")   /* "fsr" only through fsr=1 */
          s_gv_style = v;
+      return true;
+   }
+   if (name == L"fsr")
+   {
+      s_gv_fsr = v == "1";
       return true;
    }
    if (name == L"seats")
@@ -96,6 +103,10 @@ static void GvApplySeats(void)
 
 static void GvApplyStyle(void)
 {
+   /* Sharper picture (FSR) wins over "none" (a 3D system's Auto style); a style the player picked (CRT on
+    * every system) stays */
+   if (s_gv_fsr && (s_gv_style.empty() || s_gv_style == "none"))
+      s_gv_style = "fsr";
    if (s_gv_style.empty())
       return;
    settings_t *settings = config_get_ptr();
