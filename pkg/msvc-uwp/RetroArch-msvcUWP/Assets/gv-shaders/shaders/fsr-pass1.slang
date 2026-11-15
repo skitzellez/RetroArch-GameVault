@@ -8,7 +8,8 @@
 // scale_type1 = source
 // scale1 = 1.0
 
-#pragma parameter FSR_SHARPENING "FSR RCAS Sharpening Amount (Lower = Sharper)" 0.2 0.0 2.0 0.1
+// Game Vault: one friendly setting, "Sharpness" in percent (100 = sharpest); RCAS gets (100 - %) / 50
+#pragma parameter GV_SHARPNESS "Sharpness" 85.0 0.0 100.0 5.0
 #pragma parameter FSR_FILMGRAIN "FSR LFGA Film Grain Intensity" 0.3 0.0 2.0 0.02
 #pragma parameter FSR_GRAINCOLOR "FSR LFGA Film Grain Color: Gray | RGB" 1.0 0.0 1.0 1.0
 #pragma parameter FSR_GRAINPDF "FSR LFGA Grain PDF Curve (0.5 = Triangular, Lower = Gaussian)" 0.3 0.1 0.5 0.05
@@ -18,7 +19,7 @@ layout(push_constant) uniform Push {
     vec4 OriginalSize;
     vec4 OutputSize;
     uint FrameCount;
-    float FSR_SHARPENING;
+    float GV_SHARPNESS;
     float FSR_FILMGRAIN;
     float FSR_GRAINCOLOR;
     float FSR_GRAINPDF;
@@ -76,7 +77,7 @@ float pdf(float noise, float shape) {
 }
 
 void main() {
-    FsrRcasCon(con0, params.FSR_SHARPENING);
+    FsrRcasCon(con0, (100.0 - params.GV_SHARPNESS) / 50.0);
 
     AU2 gxy = AU2(vTexCoord.xy * params.OutputSize.xy); // Integer pixel position in output.
     AF3 Gamma2Color = AF3(0, 0, 0);

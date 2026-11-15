@@ -3663,6 +3663,31 @@ static int menu_displaylist_parse_load_content_settings(
                MENU_SETTING_ACTION_RUN, 0, 0, NULL))
             count++;
 
+#if defined(HAVE_CG) || defined(HAVE_GLSL) || defined(HAVE_SLANG) || defined(HAVE_HLSL)
+      /* Game Vault: Sharpness of the FSR picture (Game Vault's "Sharper picture"), near the top so a player can
+       * change it while looking at the game: left/right change it live (the shader parameter GV_SHARPNESS of
+       * assets/gv-shaders/fsr.slangp, the same row as in Shaders > Shader Parameters) */
+      {
+         video_shader_ctx_t shader_info;
+         if (video_shader_driver_get_current_shader(&shader_info) && shader_info.data)
+         {
+            unsigned i;
+            struct video_shader *shader = shader_info.data;
+            for (i = 0; i < shader->num_parameters; i++)
+            {
+               if (!string_is_equal(shader->parameters[i].id, "GV_SHARPNESS"))
+                  continue;
+               if (menu_entries_append(list, "Sharpness (FSR)",
+                     msg_hash_to_str(MENU_ENUM_LABEL_SHADER_PARAMETERS_ENTRY),
+                     MENU_ENUM_LABEL_SHADER_PARAMETERS_ENTRY,
+                     MENU_SETTINGS_SHADER_PARAMETER_0 + i, 0, 0, NULL))
+                  count++;
+               break;
+            }
+         }
+      }
+#endif
+
       if (quickmenu_show_restart_content)
          if (menu_entries_append(list,
                msg_hash_to_str(MENU_ENUM_LABEL_VALUE_RESTART_CONTENT),

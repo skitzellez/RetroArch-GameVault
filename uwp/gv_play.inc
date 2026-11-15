@@ -152,12 +152,12 @@ static void GvApplyStyle(void)
          .InstalledLocation().Path()) + "\\assets\\gv-shaders\\" + s_gv_style + ".slangp";
    if (s_gv_style == "fsr" && s_gv_fsr_pct)
    {
-      /* Game Vault's FSR strength: a preset in LocalState that points at ours and changes only the RCAS
-       * sharpness (0 = sharpest, 2 = softest): 100% -> 0, 10% -> 1.8 */
+      /* Game Vault's FSR strength: a preset in LocalState that points at ours and changes only its Sharpness
+       * (percent, the same number; the shader gives RCAS (100 - %) / 50). Quick Menu > Sharpness changes it live. */
       std::string own = LocalStateDir() + "\\config\\gv-fsr.slangp";
       if (FILE *f = fopen(own.c_str(), "w"))
       {
-         fprintf(f, "#reference \"%s\"\nFSR_SHARPENING = \"%.2f\"\n", preset.c_str(), (100 - s_gv_fsr_pct) / 50.0);
+         fprintf(f, "#reference \"%s\"\nGV_SHARPNESS = \"%d.0\"\n", preset.c_str(), s_gv_fsr_pct);
          fclose(f);
          preset = own;
          RARCH_LOG("[Game Vault] FSR strength %d%%.\n", s_gv_fsr_pct);
