@@ -21,6 +21,8 @@
 static std::string s_gv_style;     /* style= of the last link */
 /* fsr=1: Sharper picture (FSR), sent for 3D systems only (assets\gv-shaders\fsr.slangp) */
 static bool s_gv_fsr;
+/* fsrs=<percent>: Game Vault's FSR strength (10..100), 0 = the preset's own sharpness */
+static int s_gv_fsr_pct;
 static std::string s_gv_frame;     /* frame= */
 static bool s_gv_integer;          /* integer=1: Pixel perfect (whole-number scaling), for this game only */
 static std::string s_gv_seats;     /* seats= */
@@ -32,6 +34,7 @@ static void GvPlayReset(void)
 {
    s_gv_style.clear();
    s_gv_fsr = false;
+   s_gv_fsr_pct = 0;
    s_gv_frame.clear();
    s_gv_integer = false;
    s_gv_seats.clear();
@@ -51,6 +54,12 @@ static bool GvPlayArg(const winrt::hstring &name, const winrt::hstring &value)
    if (name == L"fsr")
    {
       s_gv_fsr = v == "1";
+      return true;
+   }
+   if (name == L"fsrs")
+   {
+      int pct = atoi(v.c_str());
+      s_gv_fsr_pct = pct > 0 && pct <= 100 ? pct : 0;
       return true;
    }
    if (name == L"integer")
@@ -141,6 +150,19 @@ static void GvApplyStyle(void)
    }
    std::string preset = winrt::to_string(winrt::Windows::ApplicationModel::Package::Current()
          .InstalledLocation().Path()) + "\\assets\\gv-shaders\\" + s_gv_style + ".slangp";
+   if (s_gv_style == "fsr" && s_gv_fsr_pct)
+   {
+      /* Game Vault's FSR strength: a preset in LocalState that points at ours and changes only the RCAS
+       * sharpness (0 = sharpest, 2 = softest): 100% -> 0, 10% -> 1.8 */
+      std::string own = LocalStateDir() + "\\config\\gv-fsr.slangp";
+      if (FILE *f = fopen(own.c_str(), "w"))
+      {
+         fprintf(f, "#reference \"%s\"\nFSR_SHARPENING = \"%.2f\"\n", preset.c_str(), (100 - s_gv_fsr_pct) / 50.0);
+         fclose(f);
+         preset = own;
+         RARCH_LOG("[Game Vault] FSR strength %d%%.\n", s_gv_fsr_pct);
+      }
+   }
    configuration_set_bool(settings, settings->bools.video_shader_enable, true);
    if (video_shader_apply_shader(settings, RARCH_SHADER_SLANG, preset.c_str(), false))
       RARCH_LOG("[Game Vault] Screen style: %s.\n", s_gv_style.c_str());
