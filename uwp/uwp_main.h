@@ -93,6 +93,11 @@ namespace RetroArchUWP
                              int *argc, std::vector<char*> *argv, std::vector<std::string> *argvTmp);
 
       bool m_initialized;
+      /* Game Vault: the first activation is only remembered (window shown at once); Run() starts RetroArch with it */
+      bool m_startPending = false;
+      bool m_startNow = false;
+      winrt::Windows::ApplicationModel::Core::CoreApplicationView m_startView{nullptr};
+      winrt::Windows::ApplicationModel::Activation::IActivatedEventArgs m_startArgs{nullptr};
       bool m_windowClosed;
       bool m_windowVisible;
       bool m_windowFocused;

@@ -429,6 +429,17 @@ void App::Load(hstring const& entryPoint)
 void App::Run()
 {
    bool x = false;
+   if (m_startPending && !m_initialized)
+   {
+      /* let the console see the window up and the app answering before the long first start */
+      CoreWindow::GetForCurrentThread().Dispatcher().ProcessEvents(CoreProcessEventsOption::ProcessAllIfPresent);
+      m_startPending = false;
+      m_startNow     = true;
+      OnActivated(m_startView, m_startArgs);
+      m_startNow     = false;
+      m_startView    = nullptr;
+      m_startArgs    = nullptr;
+   }
    if (!m_initialized)
    {
       RARCH_WARN("[UWP] Initialization failed, so not running.\n");
@@ -1427,6 +1438,19 @@ static void HomeWhileRunning(void)
 
 void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEventArgs const& args)
 {
+   /* Game Vault: the console closes an app that is not up in time ("RetroArch took too long to start
+    * (0x8027025a)"). The first start (Game Vault's folders, settings backup, moving BIOS/saves to the games drive,
+    * RetroArch's own start-up and the game load) can take longer on a new console, a slow drive or after an update.
+    * So the first activation only shows the window and returns; Run() does the start right after (m_startNow). */
+   if (!m_initialized && !m_startNow)
+   {
+      m_startView    = applicationView;
+      m_startArgs    = args;   /* a second activation before the start replaces the first */
+      m_startPending = true;
+      CoreWindow::GetForCurrentThread().Activate();
+      return;
+   }
+
    int ret;
    int argc = 0;
    std::vector<char*> argv;
@@ -1534,12 +1558,6 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
     * (SwanStation: "Switching to software renderer", PS1 without HD). So a game sent with the start is held back
     * and loaded once the video is ready, the way a game sent to an open RetroArch is. Online rooms (--host /
     * --connect) still start the old way. */
-   /* Game Vault: the console gives a started app only a short time to show its window; RetroArch's start-up and the
-    * game load below can take longer (slow USB drive, network share, a big game, the first start after an update),
-    * and the console then closes it with "RetroArch took too long to start (0x8027025a)". So the window is shown
-    * now, before that work, as Microsoft's own app template does; the second Activate() at the end does nothing. */
-   CoreWindow::GetForCurrentThread().Activate();
-
    std::string held_core, held_content;
    if (is_running_on_xbox())
    {
