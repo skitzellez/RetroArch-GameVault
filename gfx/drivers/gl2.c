@@ -820,6 +820,21 @@ static void gl2_raster_font_free(void *data,
    free(font);
 }
 
+#ifndef GL_CONTEXT_PROFILE_MASK
+#define GL_CONTEXT_PROFILE_MASK 0x9126
+#endif
+#ifndef GL_CONTEXT_CORE_PROFILE_BIT
+#define GL_CONTEXT_CORE_PROFILE_BIT 0x00000001
+#endif
+#ifndef GL_RG8
+#define GL_RG8 0x822B
+#endif
+#ifndef GL_RG
+#define GL_RG 0x8227
+#endif
+#ifndef GL_TEXTURE_SWIZZLE_RGBA
+#define GL_TEXTURE_SWIZZLE_RGBA 0x8E46
+#endif
 /* Convert the atlas rows [y0, y1) to LUMINANCE_ALPHA and upload them.
  * Uploading full-width row bands (rather than an x/y sub-rectangle)
  * avoids GL_UNPACK_ROW_LENGTH, which OpenGL ES 2 does not have. When
@@ -834,6 +849,17 @@ static void gl2_raster_font_upload_atlas(gl2_raster_t *font,
    size_t ncomponents          = 2;
    unsigned band               = respecify ? font->tex_height : (y1 - y0);
    uint8_t *tmp;
+#if !defined(HAVE_OPENGLES)
+   /* Game Vault: a core profile context (a hardware core such as the 3DS asked for GL 4.3 core) has no
+    * LUMINANCE_ALPHA, so the text never showed there. Two channels (RG8) read through a swizzle are the same. */
+   GLint profile               = 0;
+   glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &profile);
+   if (profile & GL_CONTEXT_CORE_PROFILE_BIT)
+   {
+      gl_internal = GL_RG8;
+      gl_format   = GL_RG;
+   }
+#endif
 
    if (!respecify && (y1 <= y0 || y1 > (unsigned)font->atlas->height))
       return;
@@ -875,9 +901,18 @@ static void gl2_raster_font_upload_atlas(gl2_raster_t *font,
    }
 
    if (respecify)
+   {
       glTexImage2D(GL_TEXTURE_2D, 0, gl_internal,
             font->tex_width, font->tex_height,
             0, gl_format, GL_UNSIGNED_BYTE, tmp);
+#if !defined(HAVE_OPENGLES)
+      if (gl_format == GL_RG)
+      {
+         static const GLint swizzle[4] = { GL_RED, GL_RED, GL_RED, GL_GREEN };
+         glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+      }
+#endif
+   }
    else
       glTexSubImage2D(GL_TEXTURE_2D, 0, 0, (GLint)y0,
             font->tex_width, band,
