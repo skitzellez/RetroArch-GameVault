@@ -2554,18 +2554,6 @@ void audio_driver_frame_end(void)
 
 size_t audio_driver_sample_batch(const int16_t *data, size_t frames)
 {
-#ifdef __WINRT__
-   {  /* 3DS test trace: loudest sample since the last report (wgl_ctx.c) */
-      extern int gl3ds_audio_peak; extern unsigned long gl3ds_audio_frames;
-      size_t i;
-      for (i = 0; i < frames * 2; i++)
-      {
-         int v = data[i] < 0 ? -data[i] : data[i];
-         if (v > gl3ds_audio_peak) gl3ds_audio_peak = v;
-      }
-      gl3ds_audio_frames += (unsigned long)frames;
-   }
-#endif
    uint32_t runloop_flags;
    bool recording_push_audio      = false;
    bool flush_audio               = false;

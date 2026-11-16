@@ -1177,6 +1177,7 @@ static void GvDefaults(void)
       const char *file; /* under config\ */
       const char *key;
       const char *value;
+      const char *round; /* set again once for everyone when this changes (NULL: the first round) */
    };
    static const Default kDefaults[] = {
       {"SwanStation\\SwanStation.opt", "swanstation_GPU_Renderer", "D3D11"},
@@ -1196,8 +1197,10 @@ static void GvDefaults(void)
       {"PCSX-ReARMed\\PCSX-ReARMed.opt", "pcsx_rearmed_vibration", "enabled"},
       {"Mupen64Plus-Next\\Mupen64Plus-Next.opt", "mupen64plus-pak1", "rumble"},
       {"mGBA\\mGBA.opt", "mgba_force_gbp", "ON"},
-      /* Azahar (3DS) on Auto asks for Vulkan, which this build has not got: "Failed to load content" */
-      {"Azahar\\Azahar.opt", "citra_graphics_api", "OpenGL"},
+      /* Azahar (3DS): the software renderer. On Auto it asked for Vulkan, which this build has not got ("Failed
+       * to load content"); on OpenGL (Mesa on D3D12) games stop after their first screens, e.g. Super Mario 3D
+       * Land at its logo: the emulated GPU's work never reports done. Round 2 moves everyone off OpenGL. */
+      {"Azahar\\Azahar.opt", "citra_graphics_api", "Software", "2"},
    };
    const std::string config = LocalStateDir() + "\\config";
    const std::string done_file = config + "\\gv-defaults.txt";
@@ -1212,7 +1215,7 @@ static void GvDefaults(void)
    std::string newly;
    for (const Default &d : kDefaults)
    {
-      const std::string id = std::string(d.file) + "|" + d.key;
+      const std::string id = std::string(d.file) + "|" + d.key + (d.round ? std::string("|") + d.round : "");
       if (done.find(id + "\n") != std::string::npos)
          continue;
       const std::string path = config + "\\" + d.file;
@@ -1344,15 +1347,9 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    for (int i = 0; i < 3; i++)
       current[i] = CfgValue(cfg, kHomeFolders[i][0]);
    std::string extra = LocalStateDir() + "\\gamevault_home.cfg", text, fps = FpsChange();
-   /* Test switch LocalState\saves_fresh.on: saves (and the 3DS core's user folder) in LocalState\saves_fresh */
-   bool saves_fresh = GetFileAttributesA((LocalStateDir() + "\\saves_fresh.on").c_str()) != INVALID_FILE_ATTRIBUTES;
-   if (HomeFolders(current, want) || saves_fresh)
+   if (HomeFolders(current, want))
       for (int i = 0; i < 3; i++)
-      {
-         std::string v = (saves_fresh && i == 1) ? LocalStateDir() + "\\saves_fresh" : want[i];
-         if (!v.empty())
-            text += std::string(kHomeFolders[i][0]) + " = \"" + v + "\"\n";
-      }
+         text += std::string(kHomeFolders[i][0]) + " = \"" + want[i] + "\"\n";
    if (!fps.empty())
       text += "video_fps_show = \"" + fps + "\"\n";
    if (!s_relay.empty())   /* a room hosted from Game Vault's Online tab */
@@ -1414,19 +1411,9 @@ static void HomeBeforeStart(std::vector<std::string> *args)
       text += "savestate_auto_save = \"true\"\n";
    /* RetroArch's log of each session goes to the drive too (logs\retroarch.log), where a player can pick
     * it up for a problem report */
-   std::string local_mark = std::string(uwp_dir_data) + "log_local.on";
-   bool log_local = GetFileAttributesA(local_mark.c_str()) != INVALID_FILE_ATTRIBUTES;
-   if (!s_home.empty() && !log_local)
+   if (!s_home.empty())
       text += "log_to_file = \"true\"\nlog_to_file_timestamp = \"false\"\nlog_verbosity = \"true\"\n"
               "frontend_log_level = \"1\"\nlibretro_log_level = \"1\"\nlog_dir = \"" + s_home + "\\logs\"\n";
-   /* Test switch LocalState\log_local.on: the log goes to LocalState\logs instead, where the Device Portal
-    * can read it (it cannot read the USB drive) */
-   {
-      if (log_local)
-         text += "log_to_file = \"true\"\nlog_to_file_timestamp = \"false\"\nlog_verbosity = \"true\"\n"
-                 "frontend_log_level = \"1\"\nlibretro_log_level = \"0\"\nlog_dir = \"" +
-                 std::string(uwp_dir_data) + "logs\"\n";
-   }
    if (text.empty())
       return;
    HANDLE h = CreateFile2FromAppW(winrt::to_hstring(extra).c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
