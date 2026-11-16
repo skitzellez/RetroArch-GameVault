@@ -1344,9 +1344,15 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    for (int i = 0; i < 3; i++)
       current[i] = CfgValue(cfg, kHomeFolders[i][0]);
    std::string extra = LocalStateDir() + "\\gamevault_home.cfg", text, fps = FpsChange();
-   if (HomeFolders(current, want))
+   /* Test switch LocalState\saves_fresh.on: saves (and the 3DS core's user folder) in LocalState\saves_fresh */
+   bool saves_fresh = GetFileAttributesA((LocalStateDir() + "\\saves_fresh.on").c_str()) != INVALID_FILE_ATTRIBUTES;
+   if (HomeFolders(current, want) || saves_fresh)
       for (int i = 0; i < 3; i++)
-         text += std::string(kHomeFolders[i][0]) + " = \"" + want[i] + "\"\n";
+      {
+         std::string v = (saves_fresh && i == 1) ? LocalStateDir() + "\\saves_fresh" : want[i];
+         if (!v.empty())
+            text += std::string(kHomeFolders[i][0]) + " = \"" + v + "\"\n";
+      }
    if (!fps.empty())
       text += "video_fps_show = \"" + fps + "\"\n";
    if (!s_relay.empty())   /* a room hosted from Game Vault's Online tab */
@@ -1408,16 +1414,17 @@ static void HomeBeforeStart(std::vector<std::string> *args)
       text += "savestate_auto_save = \"true\"\n";
    /* RetroArch's log of each session goes to the drive too (logs\retroarch.log), where a player can pick
     * it up for a problem report */
-   if (!s_home.empty())
+   std::string local_mark = std::string(uwp_dir_data) + "log_local.on";
+   bool log_local = GetFileAttributesA(local_mark.c_str()) != INVALID_FILE_ATTRIBUTES;
+   if (!s_home.empty() && !log_local)
       text += "log_to_file = \"true\"\nlog_to_file_timestamp = \"false\"\nlog_verbosity = \"true\"\n"
               "frontend_log_level = \"1\"\nlibretro_log_level = \"1\"\nlog_dir = \"" + s_home + "\\logs\"\n";
    /* Test switch LocalState\log_local.on: the log goes to LocalState\logs instead, where the Device Portal
     * can read it (it cannot read the USB drive) */
    {
-      std::string mark = std::string(uwp_dir_data) + "log_local.on";
-      if (GetFileAttributesA(mark.c_str()) != INVALID_FILE_ATTRIBUTES)
+      if (log_local)
          text += "log_to_file = \"true\"\nlog_to_file_timestamp = \"false\"\nlog_verbosity = \"true\"\n"
-                 "frontend_log_level = \"1\"\nlibretro_log_level = \"1\"\nlog_dir = \"" +
+                 "frontend_log_level = \"1\"\nlibretro_log_level = \"0\"\nlog_dir = \"" +
                  std::string(uwp_dir_data) + "logs\"\n";
    }
    if (text.empty())

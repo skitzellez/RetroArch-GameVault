@@ -8897,7 +8897,14 @@ void core_run(void)
     * a NULL retro_run — that is an immediate SIGSEGV. */
    if (current_core->retro_run)
    {
+#ifdef __WINRT__
+      extern void gl3ds_run_tick(unsigned long ms);
+      unsigned long gl3ds_t0 = GetTickCount();
+#endif
       current_core->retro_run();
+#ifdef __WINRT__
+      gl3ds_run_tick(GetTickCount() - gl3ds_t0);
+#endif
       audio_driver_frame_end();
    }
 

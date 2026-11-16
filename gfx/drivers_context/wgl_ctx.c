@@ -152,7 +152,7 @@ static void gl3ds_trace(const char *fmt, ...)
    char p[1024];
    FILE *f;
    va_list ap;
-   if (lines >= 60)
+   if (lines >= 200)
       return;
    lines++;
    snprintf(p, sizeof(p), "%sgl3ds.txt", uwp_dir_data);
@@ -213,13 +213,196 @@ static void gl3ds_probe(const char *what, int n)
       bindfb(0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLuint)(n ? dfb : 0));
    for (i = 0; i < 3; i++)
       glReadPixels(vp[0] + vp[2] * (i + 1) / 4, vp[1] + vp[3] * (i + 1) / 4, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px[i]);
+   {  /* checksum of the whole viewport, so any change shows */
+      static unsigned char *buf;
+      unsigned long sum = 0;
+      size_t k, len = (size_t)vp[2] * (size_t)vp[3] * 4;
+      if (vp[2] > 0 && vp[3] > 0 && vp[2] <= 4096 && vp[3] <= 4096)
+      {
+         buf = (unsigned char*)realloc(buf, len);
+         if (buf)
+         {
+            glReadPixels(vp[0], vp[1], vp[2], vp[3], GL_RGBA, GL_UNSIGNED_BYTE, buf);
+            for (k = 0; k < len; k++)
+               sum = sum * 31 + buf[k];
+         }
+      }
+      gl3ds_trace("%s: checksum %08lx", what, sum);
+   }
    if (bindfb && n >= 0)
       bindfb(0x8CA8, (GLuint)rfb);
    gl3ds_trace("%s: read fb %d draw fb %d viewport %d,%d %dx%d px %02x%02x%02x %02x%02x%02x %02x%02x%02x", what,
          rfb, dfb, vp[0], vp[1], vp[2], vp[3],
          px[0][0], px[0][1], px[0][2], px[1][0], px[1][1], px[1][2], px[2][0], px[2][1], px[2][2]);
 }
+/* 3DS test: writes every thread's call stack (module!nearest export+offset) to LocalState\gl3ds_threads.txt */
+typedef LONG (NTAPI *gl3ds_nqsi_t)(ULONG, PVOID, ULONG, PULONG);
+typedef HANDLE (WINAPI *gl3ds_openthread_t)(DWORD, BOOL, DWORD);
+typedef DWORD (WINAPI *gl3ds_suspend_t)(HANDLE);
+typedef BOOL (WINAPI *gl3ds_getctx_t)(HANDLE, CONTEXT*);
+static HMODULE gl3ds_module_of(const void *addr)
+{
+   MEMORY_BASIC_INFORMATION mbi;
+   if (!VirtualQuery(addr, &mbi, sizeof(mbi)))
+      return NULL;
+   return (HMODULE)mbi.AllocationBase;
+}
+static void gl3ds_describe(DWORD64 pc, char *out, size_t outsz)
+{
+   unsigned char *base = (unsigned char*)gl3ds_module_of((void*)pc);
+   const char *modname = "?";
+   const char *best = NULL;
+   DWORD bestrva = 0;
+   DWORD rva = 0;
+   __try
+   {
+      IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER*)base;
+      if (base && dos->e_magic == IMAGE_DOS_SIGNATURE)
+      {
+         IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64*)(base + dos->e_lfanew);
+         IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+         rva = (DWORD)(pc - (DWORD64)base);
+         if (dir.VirtualAddress)
+         {
+            IMAGE_EXPORT_DIRECTORY *ed = (IMAGE_EXPORT_DIRECTORY*)(base + dir.VirtualAddress);
+            DWORD *names = (DWORD*)(base + ed->AddressOfNames);
+            WORD *ords = (WORD*)(base + ed->AddressOfNameOrdinals);
+            DWORD *funcs = (DWORD*)(base + ed->AddressOfFunctions);
+            DWORD i;
+            modname = (const char*)(base + ed->Name);
+            for (i = 0; i < ed->NumberOfNames; i++)
+            {
+               DWORD f = funcs[ords[i]];
+               if (f <= rva && f > bestrva)
+               {
+                  bestrva = f;
+                  best = (const char*)(base + names[i]);
+               }
+            }
+         }
+         else
+            modname = "(exe)";
+      }
+   }
+   __except (EXCEPTION_EXECUTE_HANDLER)
+   {
+   }
+   if (best)
+      snprintf(out, outsz, "%s!%s+0x%lx (rva 0x%lx)", modname, best, (unsigned long)(rva - bestrva), (unsigned long)rva);
+   else
+      snprintf(out, outsz, "%s+0x%lx", modname, (unsigned long)rva);
+}
+static void gl3ds_dump_threads(void)
+{
+   extern char uwp_dir_data[];
+   HMODULE ntdll = gl3ds_module_of((void*)&RtlCaptureContext);
+   HMODULE kbase = gl3ds_module_of((void*)&GetTickCount);
+   gl3ds_nqsi_t nqsi = ntdll ? (gl3ds_nqsi_t)GetProcAddress(ntdll, "NtQuerySystemInformation") : NULL;
+   gl3ds_openthread_t openthread = kbase ? (gl3ds_openthread_t)GetProcAddress(kbase, "OpenThread") : NULL;
+   gl3ds_suspend_t suspend = kbase ? (gl3ds_suspend_t)GetProcAddress(kbase, "SuspendThread") : NULL;
+   gl3ds_suspend_t resume = kbase ? (gl3ds_suspend_t)GetProcAddress(kbase, "ResumeThread") : NULL;
+   gl3ds_getctx_t getctx = kbase ? (gl3ds_getctx_t)GetProcAddress(kbase, "GetThreadContext") : NULL;
+   char path[1024];
+   FILE *f;
+   ULONG len = 1 << 20, got = 0;
+   unsigned char *buf;
+   DWORD me = GetCurrentProcessId(), self = GetCurrentThreadId();
+   snprintf(path, sizeof(path), "%sgl3ds_threads.txt", uwp_dir_data);
+   if (!(f = fopen(path, "w")))
+      return;
+   fprintf(f, "ntdll %p kbase %p nqsi %p open %p suspend %p getctx %p\n", (void*)ntdll, (void*)kbase,
+         (void*)nqsi, (void*)openthread, (void*)suspend, (void*)getctx);
+   if (!nqsi || !openthread || !suspend || !resume || !getctx || !(buf = (unsigned char*)malloc(len)))
+   {
+      fclose(f);
+      return;
+   }
+   if (nqsi(5 /* SystemProcessInformation */, buf, len, &got) == 0)
+   {
+      unsigned char *p = buf;
+      for (;;)
+      {
+         /* SYSTEM_PROCESS_INFORMATION (x64): NextEntryOffset @0, NumberOfThreads @4, UniqueProcessId @0x50,
+          * threads (SYSTEM_THREAD_INFORMATION, 0x50 bytes each) @0x100; ClientId.UniqueThread @0x30 inside,
+          * ThreadState @0x44, WaitReason @0x48 */
+         ULONG next = *(ULONG*)p, n = *(ULONG*)(p + 4), t;
+         if ((DWORD)(ULONG_PTR)*(HANDLE*)(p + 0x50) == me)
+         {
+            for (t = 0; t < n; t++)
+            {
+               unsigned char *ti = p + 0x100 + t * 0x50;
+               DWORD tid = (DWORD)(ULONG_PTR)*(HANDLE*)(ti + 0x30);
+               ULONG state = *(ULONG*)(ti + 0x44), why = *(ULONG*)(ti + 0x48);
+               HANDLE h;
+               CONTEXT c;
+               int k;
+               fprintf(f, "\nthread %lu state %lu wait %lu%s\n", (unsigned long)tid, state, why, tid == self ? " (sampler)" : "");
+               if (tid == self || !(h = openthread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid)))
+                  continue;
+               if (suspend(h) != (DWORD)-1)
+               {
+                  memset(&c, 0, sizeof(c));
+                  c.ContextFlags = CONTEXT_FULL;
+                  if (getctx(h, &c))
+                  {
+                     for (k = 0; k < 28 && c.Rip; k++)
+                     {
+                        char d[256];
+                        DWORD64 imgbase = 0;
+                        PRUNTIME_FUNCTION fe;
+                        gl3ds_describe(c.Rip, d, sizeof(d));
+                        fprintf(f, "  %2d %016llx %s\n", k, (unsigned long long)c.Rip, d);
+                        __try
+                        {
+                           fe = RtlLookupFunctionEntry(c.Rip, &imgbase, NULL);
+                           if (fe)
+                           {
+                              PVOID hd; DWORD64 est;
+                              RtlVirtualUnwind(0, imgbase, c.Rip, fe, &c, &hd, &est, NULL);
+                           }
+                           else
+                           {
+                              c.Rip = *(DWORD64*)c.Rsp;
+                              c.Rsp += 8;
+                           }
+                        }
+                        __except (EXCEPTION_EXECUTE_HANDLER)
+                        {
+                           break;
+                        }
+                     }
+                  }
+                  resume(h);
+               }
+               CloseHandle(h);
+            }
+         }
+         if (!next)
+            break;
+         p += next;
+      }
+   }
+   else
+      fprintf(f, "NtQuerySystemInformation failed\n");
+   free(buf);
+   fclose(f);
+}
+
 static int gl3ds_frames;
+static unsigned long gl3ds_runs, gl3ds_run_max;
+int gl3ds_audio_peak;
+unsigned long gl3ds_audio_frames;
+/* called after each retro_run (runloop.c): counts runs, keeps the slowest */
+void gl3ds_run_tick(unsigned long ms)
+{
+   if (!win32_hw_hrc)
+      return;
+   gl3ds_runs++;
+   if (ms > gl3ds_run_max)
+      gl3ds_run_max = ms;
+   if (ms > 500)
+      gl3ds_trace("retro_run took %lu ms", ms);
+}
 #endif
 static HDC   win32_hdc;
 static uint8_t wgl_flags;
@@ -612,9 +795,18 @@ static void gfx_ctx_wgl_swap_buffers(void *data)
                      (void*)win32_hrc, (void*)win32_hw_hrc, (unsigned)glGetError());
                gl3ds_debug_on(NULL);
             }
-            if (win32_hw_hrc && (gl3ds_frames < 4 || gl3ds_frames % 600 == 0))
+            if (win32_hw_hrc && (gl3ds_frames < 4 || gl3ds_frames % 120 == 0))
+            {
                gl3ds_probe("back buffer before swap", 0);
+               gl3ds_trace("frame %d: retro_run calls %lu, slowest %lu ms, audio frames %lu peak %d", gl3ds_frames,
+                     gl3ds_runs, gl3ds_run_max, gl3ds_audio_frames, gl3ds_audio_peak);
+               gl3ds_runs = gl3ds_run_max = 0;
+               gl3ds_audio_frames = 0;
+               gl3ds_audio_peak = 0;
+            }
             gl3ds_frames++;
+            if (win32_hw_hrc && gl3ds_frames == 1800)
+               gl3ds_dump_threads();
             sw = wglSwapBuffers(win32_hdc);
             if (win32_hw_hrc && !sw) gl3ds_trace("swap %d err %lu ctx %p glerr %x", (int)sw, sw ? 0ul : (unsigned long)GetLastError(),
                   (void*)wglGetCurrentContext(), (unsigned)glGetError());
@@ -969,7 +1161,7 @@ static void gfx_ctx_wgl_bind_hw_render(void *data, bool enable)
                BOOL mk;
 #ifdef __WINRT__
                if (win32_hw_hrc && wglGetCurrentContext() == win32_hw_hrc &&
-                     (gl3ds_frames < 4 || gl3ds_frames % 600 == 0))
+                     (gl3ds_frames < 4 || gl3ds_frames % 120 == 0))
                   gl3ds_probe("core fbo when leaving the core", 1);
 #endif
                mk = wglMakeCurrent(win32_hdc, win32_hrc);
