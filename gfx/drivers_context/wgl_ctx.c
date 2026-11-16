@@ -138,6 +138,89 @@ enum wgl_flags
 /* TODO/FIXME - static globals */
 static HGLRC win32_hrc;
 static HGLRC win32_hw_hrc;
+/* Game Vault: the attributes win32_hrc was made with (version, core profile), so the shared context made
+ * late for a hardware core (3DS / Azahar) matches it. */
+static int   win32_hrc_attribs[16];
+static bool  win32_hrc_attribs_set;
+#ifdef __WINRT__
+#include <stdarg.h>
+/* test trace for the 3DS picture on Xbox: LocalState\gl3ds.txt, the first 60 lines */
+static void gl3ds_trace(const char *fmt, ...)
+{
+   extern char uwp_dir_data[];
+   static int lines;
+   char p[1024];
+   FILE *f;
+   va_list ap;
+   if (lines >= 60)
+      return;
+   lines++;
+   snprintf(p, sizeof(p), "%sgl3ds.txt", uwp_dir_data);
+   if (!(f = fopen(p, "a")))
+      return;
+   fprintf(f, "%lu ", (unsigned long)GetTickCount());
+   va_start(ap, fmt);
+   vfprintf(f, fmt, ap);
+   va_end(ap);
+   fputc('\n', f);
+   fclose(f);
+}
+static void APIENTRY gl3ds_debug_cb(GLenum source, GLenum type, GLuint id, GLenum severity,
+      GLsizei length, const GLchar *message, const void *user)
+{
+   static char seen[24][96];
+   static int nseen;
+   int i;
+   if (type != 0x824C /* GL_DEBUG_TYPE_ERROR */)
+      return;
+   for (i = 0; i < nseen; i++)
+      if (!strncmp(seen[i], message, 95))
+         return;
+   if (nseen < 24)
+      strncpy(seen[nseen++], message, 95);
+   gl3ds_trace("GL error in %s ctx: %s", user ? "core" : "main", message);
+}
+/* GL_DEBUG_OUTPUT with a callback on the current context, once per context */
+static void gl3ds_debug_on(const void *which)
+{
+   typedef void (APIENTRY *cb_t)(GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar*, const void*);
+   typedef void (APIENTRY *set_t)(cb_t, const void*);
+   set_t set = (set_t)wglGetProcAddress("glDebugMessageCallback");
+   if (!set)
+   {
+      gl3ds_trace("no glDebugMessageCallback");
+      return;
+   }
+   glEnable(0x92E0 /* GL_DEBUG_OUTPUT */);
+   glEnable(0x8242 /* GL_DEBUG_OUTPUT_SYNCHRONOUS */);
+   set(gl3ds_debug_cb, which);
+   gl3ds_trace("debug output on (%s)", which ? "core" : "main");
+}
+/* reads a few pixels of the bound read framebuffer (fbo 0: the back buffer) into the trace */
+static void gl3ds_probe(const char *what, int n)
+{
+   typedef void (APIENTRY *bind_t)(GLenum, GLuint);
+   static bind_t bindfb;
+   GLint rfb = 0, dfb = 0, vp[4] = {0};
+   unsigned char px[3][4];
+   int i;
+   if (!bindfb)
+      bindfb = (bind_t)wglGetProcAddress("glBindFramebuffer");
+   glGetIntegerv(0x8CAA /* GL_READ_FRAMEBUFFER_BINDING */, &rfb);
+   glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &dfb);
+   glGetIntegerv(GL_VIEWPORT, vp);
+   if (bindfb && n >= 0)
+      bindfb(0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLuint)(n ? dfb : 0));
+   for (i = 0; i < 3; i++)
+      glReadPixels(vp[0] + vp[2] * (i + 1) / 4, vp[1] + vp[3] * (i + 1) / 4, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px[i]);
+   if (bindfb && n >= 0)
+      bindfb(0x8CA8, (GLuint)rfb);
+   gl3ds_trace("%s: read fb %d draw fb %d viewport %d,%d %dx%d px %02x%02x%02x %02x%02x%02x %02x%02x%02x", what,
+         rfb, dfb, vp[0], vp[1], vp[2], vp[3],
+         px[0][0], px[0][1], px[0][2], px[1][0], px[1][1], px[1][2], px[2][0], px[2][1], px[2][2]);
+}
+static int gl3ds_frames;
+#endif
 static HDC   win32_hdc;
 static uint8_t wgl_flags;
 #ifdef HAVE_EGL
@@ -337,6 +420,9 @@ void create_gl_context(HWND hwnd, bool *quit)
                   break;
                }
 
+               memcpy(win32_hrc_attribs, attribs, sizeof(win32_hrc_attribs));
+               win32_hrc_attribs_set = true;
+
                if (wgl_flags & WGL_FLAG_USE_HW_CTX)
                {
                   win32_hw_hrc = pcreate_context(win32_hdc, context, attribs);
@@ -518,7 +604,21 @@ static void gfx_ctx_wgl_swap_buffers(void *data)
    {
       case GFX_CTX_OPENGL_API:
 #ifdef __WINRT__
-         wglSwapBuffers(win32_hdc);
+         {
+            BOOL sw;
+            if (win32_hw_hrc && gl3ds_frames == 0)
+            {
+               gl3ds_trace("at first swap: current %p main %p hw %p glerr %x", (void*)wglGetCurrentContext(),
+                     (void*)win32_hrc, (void*)win32_hw_hrc, (unsigned)glGetError());
+               gl3ds_debug_on(NULL);
+            }
+            if (win32_hw_hrc && (gl3ds_frames < 4 || gl3ds_frames % 600 == 0))
+               gl3ds_probe("back buffer before swap", 0);
+            gl3ds_frames++;
+            sw = wglSwapBuffers(win32_hdc);
+            if (win32_hw_hrc && !sw) gl3ds_trace("swap %d err %lu ctx %p glerr %x", (int)sw, sw ? 0ul : (unsigned long)GetLastError(),
+                  (void*)wglGetCurrentContext(), (unsigned)glGetError());
+         }
 #else
          SwapBuffers(win32_hdc);
 #endif
@@ -565,6 +665,7 @@ static void gfx_ctx_wgl_destroy(void *data)
                wglDeleteContext(win32_hrc);
                win32_hrc    = NULL;
                win32_hw_hrc = NULL;
+               win32_hrc_attribs_set = false;
             }
          }
 #endif
@@ -693,6 +794,17 @@ static bool gfx_ctx_wgl_set_video_mode(void *data,
    if (win32_api == GFX_CTX_OPENGL_API)
       p_swap_interval = (BOOL (APIENTRY *)(int))gfx_ctx_wgl_get_proc_address("wglSwapIntervalEXT");
 
+#ifdef __WINRT__
+   /* Game Vault: the context is kept when the video driver starts again (a core loads), and the gl driver's
+    * last init ended with the core's shared context current. Its next init then made its vertex array and
+    * framebuffers there, which other contexts cannot use: every frame failed to draw (3DS black on Xbox). */
+   if (win32_api == GFX_CTX_OPENGL_API && win32_hdc && win32_hrc && wglGetCurrentContext() != win32_hrc)
+   {
+      RARCH_LOG("[WGL] Main context made current again for the video driver's start.\n");
+      wglMakeCurrent(win32_hdc, win32_hrc);
+   }
+#endif
+
    gfx_ctx_wgl_swap_interval(data, win32_interval);
    return true;
 }
@@ -776,12 +888,102 @@ static void gfx_ctx_wgl_bind_hw_render(void *data, bool enable)
 #if (defined(HAVE_OPENGL) || defined(HAVE_OPENGL1) || defined(HAVE_OPENGL_CORE)) && !defined(HAVE_OPENGLES)
          wgl_flags |= WGL_FLAG_USE_HW_CTX;
 
+         /* Game Vault: on UWP the main context is made in init, before the first bind_hw_render says a
+          * shared one is wanted, so none was made: switching to the missing one left no context current
+          * (GL vendor "(null)", Azahar closing RetroArch on Xbox). Make it now, sharing with the main one. */
+         if (enable && win32_hdc && win32_hrc && !win32_hw_hrc)
+         {
+            if (win32_hrc_attribs_set)
+            {
+               typedef HGLRC (APIENTRY *wglCreateContextAttribsProc)(HDC, HGLRC, const int*);
+               wglCreateContextAttribsProc pcreate_context = (wglCreateContextAttribsProc)
+                  gfx_ctx_wgl_get_proc_address("wglCreateContextAttribsARB");
+               if (pcreate_context)
+                  win32_hw_hrc = pcreate_context(win32_hdc, win32_hrc, win32_hrc_attribs);
+            }
+            else
+            {
+               win32_hw_hrc = wglCreateContext(win32_hdc);
+               if (win32_hw_hrc && !wglShareLists(win32_hrc, win32_hw_hrc))
+               {
+                  wglDeleteContext(win32_hw_hrc);
+                  win32_hw_hrc = NULL;
+               }
+            }
+            if (win32_hw_hrc)
+               RARCH_LOG("[WGL] Made the shared context late.\n");
+            else
+               RARCH_ERR("[WGL] Failed to create shared context.\n");
+         }
+
          if (win32_hdc)
          {
+#ifdef __WINRT__
+            /* Game Vault: the core's context draws only into framebuffer objects, so on Xbox it is made
+             * current with no window (our Mesa takes a NULL DC as surfaceless). Made current on the
+             * CoreWindow, it took the window's picture over: black screen, game running and heard. */
+            if (enable && win32_hw_hrc)
+            {
+               static int surfaceless = -1;
+               if (surfaceless < 0)
+               {
+                  /* test trace: LocalState\gl3ds.txt (the drive's RetroArch log is out of the Device Portal's reach) */
+                  extern char uwp_dir_data[];
+                  char p[1024];
+                  FILE *f;
+                  BOOL ok = wglMakeCurrent(NULL, win32_hw_hrc);
+                  const char *ren = ok ? (const char*)glGetString(GL_RENDERER) : NULL;
+                  const char *ver = ok ? (const char*)glGetString(GL_VERSION) : NULL;
+                  snprintf(p, sizeof(p), "%sgl3ds.txt", uwp_dir_data);
+                  if ((f = fopen(p, "a")))
+                  {
+                     fprintf(f, "surfaceless make current: %d (error %lu) renderer %s version %s, main %p hw %p\n",
+                           (int)ok, ok ? 0ul : (unsigned long)GetLastError(), ren ? ren : "(null)",
+                           ver ? ver : "(null)", (void*)win32_hrc, (void*)win32_hw_hrc);
+                     fclose(f);
+                  }
+               }
+               if (surfaceless != 0 && wglMakeCurrent(NULL, win32_hw_hrc))
+               {
+                  if (surfaceless < 0)
+                  {
+                     RARCH_LOG("[WGL] The core's context draws with no window (surfaceless).\n");
+                     gl3ds_debug_on((const void*)1);
+                  }
+                  surfaceless = 1;
+               }
+               else
+               {
+                  if (surfaceless < 0)
+                     RARCH_LOG("[WGL] Surfaceless not taken, the core's context uses the window.\n");
+                  surfaceless = 0;
+                  wglMakeCurrent(win32_hdc, win32_hw_hrc);
+               }
+            }
+            else
+#endif
             if (enable)
                wglMakeCurrent(win32_hdc, win32_hw_hrc);
             else
-               wglMakeCurrent(win32_hdc, win32_hrc);
+            {
+               BOOL mk;
+#ifdef __WINRT__
+               if (win32_hw_hrc && wglGetCurrentContext() == win32_hw_hrc &&
+                     (gl3ds_frames < 4 || gl3ds_frames % 600 == 0))
+                  gl3ds_probe("core fbo when leaving the core", 1);
+#endif
+               mk = wglMakeCurrent(win32_hdc, win32_hrc);
+#ifdef __WINRT__
+               static bool dbg_main;
+               if (!mk) gl3ds_trace("back to main %d err %lu", (int)mk, mk ? 0ul : (unsigned long)GetLastError());
+               if (mk && !dbg_main)
+               {
+                  dbg_main = true;
+                  gl3ds_debug_on(NULL);
+               }
+#endif
+               (void)mk;
+            }
          }
 #endif
          break;

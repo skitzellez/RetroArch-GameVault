@@ -1411,6 +1411,15 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    if (!s_home.empty())
       text += "log_to_file = \"true\"\nlog_to_file_timestamp = \"false\"\nlog_verbosity = \"true\"\n"
               "frontend_log_level = \"1\"\nlibretro_log_level = \"1\"\nlog_dir = \"" + s_home + "\\logs\"\n";
+   /* Test switch LocalState\log_local.on: the log goes to LocalState\logs instead, where the Device Portal
+    * can read it (it cannot read the USB drive) */
+   {
+      std::string mark = std::string(uwp_dir_data) + "log_local.on";
+      if (GetFileAttributesA(mark.c_str()) != INVALID_FILE_ATTRIBUTES)
+         text += "log_to_file = \"true\"\nlog_to_file_timestamp = \"false\"\nlog_verbosity = \"true\"\n"
+                 "frontend_log_level = \"1\"\nlibretro_log_level = \"1\"\nlog_dir = \"" +
+                 std::string(uwp_dir_data) + "logs\"\n";
+   }
    if (text.empty())
       return;
    HANDLE h = CreateFile2FromAppW(winrt::to_hstring(extra).c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, NULL);
