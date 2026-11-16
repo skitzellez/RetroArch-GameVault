@@ -1197,10 +1197,12 @@ static void GvDefaults(void)
       {"PCSX-ReARMed\\PCSX-ReARMed.opt", "pcsx_rearmed_vibration", "enabled"},
       {"Mupen64Plus-Next\\Mupen64Plus-Next.opt", "mupen64plus-pak1", "rumble"},
       {"mGBA\\mGBA.opt", "mgba_force_gbp", "ON"},
-      /* Azahar (3DS): the software renderer. On Auto it asked for Vulkan, which this build has not got ("Failed
-       * to load content"); on OpenGL (Mesa on D3D12) games stop after their first screens, e.g. Super Mario 3D
-       * Land at its logo: the emulated GPU's work never reports done. Round 2 moves everyone off OpenGL. */
-      {"Azahar\\Azahar.opt", "citra_graphics_api", "Software", "2"},
+      /* Azahar (3DS): OpenGL (the console's GPU) with the 3DS shaders run on the CPU. On Auto it asked for
+       * Vulkan, which this build has not got ("Failed to load content"); with hardware shaders on, games stop
+       * after their first screens (Super Mario 3D Land at its logo, Mesa on D3D12); the software renderer
+       * (round 2) plays but is slow in 3D. Round 3 moves everyone to this. */
+      {"Azahar\\Azahar.opt", "citra_graphics_api", "OpenGL", "3"},
+      {"Azahar\\Azahar.opt", "citra_use_hw_shader", "disabled", "3"},
    };
    const std::string config = LocalStateDir() + "\\config";
    const std::string done_file = config + "\\gv-defaults.txt";
