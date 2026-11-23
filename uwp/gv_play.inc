@@ -399,3 +399,54 @@ static void GvPlayTick(void)
 }
 
 static bool GvKeepResume(void) { return s_gv_keep_resume; }
+
+/* Game Vault tracker (like the trackers of RPCS3 Spartan Test, XBSX2, Dolphin and Xenia for Game Vault): the time
+ * between frames while a game runs (not paused, no menu). A frame over 50 ms after the one before is a slow frame.
+ * "the core asks" is the frame rate the game should have. A line every 60 s, and every 10 s while frames are slow,
+ * into retroarch.log, which Game Vault sends with its reports. */
+#ifdef HAVE_MENU
+#include "../menu/menu_driver.h"
+#endif
+static void GvTrackTick(void)
+{
+   static LARGE_INTEGER s_freq, s_last, s_line;
+   static unsigned s_frames, s_slow;
+   static double s_worst;
+   LARGE_INTEGER now;
+   runloop_state_t *runloop_st = runloop_state_get_ptr();
+   const char *content         = path_get(RARCH_PATH_CONTENT);
+   bool running                = content && *content
+         && (content_state_get_ptr()->flags & CONTENT_ST_FLAG_IS_INITED)
+         && !(runloop_st->flags & RUNLOOP_FLAG_PAUSED);
+#ifdef HAVE_MENU
+   if (menu_state_get_ptr()->flags & MENU_ST_FLAG_ALIVE)
+      running = false;
+#endif
+   if (!s_freq.QuadPart)
+      QueryPerformanceFrequency(&s_freq);
+   QueryPerformanceCounter(&now);
+   double gap = s_last.QuadPart ? (now.QuadPart - s_last.QuadPart) * 1000.0 / s_freq.QuadPart : 1e9;
+   s_last     = now;
+   if (!running || gap > 2000)   /* not playing, or back from a pause or the menu: a new count */
+   {
+      s_line   = now;
+      s_frames = s_slow = 0;
+      s_worst  = 0;
+      return;
+   }
+   s_frames++;
+   if (gap > s_worst)
+      s_worst = gap;
+   if (gap > 50)
+      s_slow++;
+   double since = (now.QuadPart - s_line.QuadPart) * 1000.0 / s_freq.QuadPart;
+   if (since < (s_slow ? 10000 : 60000))
+      return;
+   const char *core = runloop_st->system.info.library_name;
+   RARCH_LOG("[Game Vault] tracker: frame rate %.0f (the core asks %.0f), worst frame %.0f ms, slow frames %u of %u (%s)\n",
+         s_frames * 1000.0 / since, video_state_get_ptr()->av_info.timing.fps, s_worst, s_slow, s_frames,
+         core && *core ? core : "core");
+   s_line   = now;
+   s_frames = s_slow = 0;
+   s_worst  = 0;
+}

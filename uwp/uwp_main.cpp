@@ -80,6 +80,7 @@ static void ControlsTick(void);
 static void TitleShotTick(void);
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
 static void GvPlayTick(void);     /* gv_play.inc: screen style, seats, Kid mode */
+static void GvTrackTick(void);    /* gv_play.inc: Game Vault tracker (frame times into retroarch.log) */
 static bool GvKeepResume(void);
 #endif
 
@@ -478,6 +479,7 @@ void App::Run()
 
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
       GvPlayTick();
+      GvTrackTick();
 #endif
 
       if (!x)
