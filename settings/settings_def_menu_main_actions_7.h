@@ -16,10 +16,17 @@
 #endif
 /* Descriptor and configuration rows are #if !defined(IOS) #if !defined(HAVE_LAKKA); the string
  * tables always carry this row via the strings pass. */
+#ifndef GV_QUIT_NAME
+#ifdef __WINRT__
+#define GV_QUIT_NAME "Return to Game Vault"   /* Game Vault: quitting opens Game Vault again (uwp_main.cpp launchOnExit) */
+#else
+#define GV_QUIT_NAME "Quit"
+#endif
+#endif
 #if !defined(IOS) && !defined(HAVE_LAKKA) || defined(SETTINGS_DEF_STRINGS_PASS)
 S_ACTION_EX_H(QUIT_RETROARCH,
       "quit_retroarch",
       SD_FLAG_NONE, NULL, NULL, CMD_EVENT_QUIT,
-      "Quit",
+      GV_QUIT_NAME,
       "Quit RetroArch application. Configuration save on exit is enabled.")
 #endif
