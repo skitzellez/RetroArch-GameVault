@@ -344,6 +344,7 @@ enum
    OZONE_ENTRIES_ICONS_TEXTURE_INPUT_MOUSE,
    OZONE_ENTRIES_ICONS_TEXTURE_INPUT_LGUN,
    OZONE_ENTRIES_ICONS_TEXTURE_INPUT_TURBO,
+   OZONE_ENTRIES_ICONS_TEXTURE_GAMEVAULT,   /* Game Vault's emblem: Return to Game Vault */
    OZONE_ENTRIES_ICONS_TEXTURE_LAST
 };
 
@@ -1975,6 +1976,11 @@ static uintptr_t ozone_entries_icon_get_texture(
       unsigned type,
       bool active)
 {
+#ifdef __WINRT__
+   /* Game Vault: its emblem beside Return to Game Vault (the quit row), the X when the picture is missing */
+   if (enum_idx == MENU_ENUM_LABEL_QUIT_RETROARCH && icons_tex[OZONE_ENTRIES_ICONS_TEXTURE_GAMEVAULT])
+      return icons_tex[OZONE_ENTRIES_ICONS_TEXTURE_GAMEVAULT];
+#endif
    switch (enum_idx)
    {
       case MENU_ENUM_LABEL_LOAD_DISC:
@@ -2774,6 +2780,8 @@ static const char *ozone_entries_icon_texture_path(unsigned id)
          return "run.png";
       case OZONE_ENTRIES_ICONS_TEXTURE_CLOSE:
          return "close.png";
+      case OZONE_ENTRIES_ICONS_TEXTURE_GAMEVAULT:
+         return "gamevault.png";
       case OZONE_ENTRIES_ICONS_TEXTURE_RESUME:
          return "resume.png";
       case OZONE_ENTRIES_ICONS_TEXTURE_CLOCK:
