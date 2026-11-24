@@ -457,6 +457,21 @@ libretro_vfs_implementation_file* retro_vfs_file_open_impl(
         if (!retro_vfs_file_open_smb(stream, path, mode, hints))
             goto error;
 
+        /* The file's length, as for a local file below: without it a
+         * network file reports 0 bytes, and the .zip / .7z readers
+         * (archive_file.c, filestream_get_size) found nothing inside a
+         * zipped ROM on a share ("No Items"). Plain ROMs only loaded
+         * because filestream_read_file falls back to reading to EOF. */
+        if (     mode != RETRO_VFS_FILE_ACCESS_WRITE
+              && mode != RETRO_VFS_FILE_ACCESS_READ_WRITE
+              && retro_vfs_file_seek_smb(stream, 0, SEEK_END) == 0)
+        {
+            int64_t end = retro_vfs_file_tell_smb(stream);
+            if (end > 0)
+                stream->size = end;
+            retro_vfs_file_seek_smb(stream, 0, SEEK_SET);
+        }
+
         return stream;
     }
 #endif
