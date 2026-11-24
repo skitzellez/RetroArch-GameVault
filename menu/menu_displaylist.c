@@ -3655,6 +3655,16 @@ static int menu_displaylist_parse_load_content_settings(
       bool savestates_enabled             = core_info_current_supports_savestate();
       rarch_system_info_t *sys_info       = &runloop_state_get_ptr()->system;
 
+#ifdef __WINRT__
+      /* Game Vault: back to Game Vault first, above Resume (owner 2026-11-23). RetroArch's own quit: the game's
+       * saves are written, then uwp_main.cpp opens Game Vault (launchOnExit "gamevault:") */
+      if (menu_entries_append(list, "Return to Game Vault",
+            msg_hash_to_str(MENU_ENUM_LABEL_QUIT_RETROARCH),
+            MENU_ENUM_LABEL_QUIT_RETROARCH,
+            MENU_SETTING_ACTION, 0, 0, NULL))
+         count++;
+#endif
+
       if (quickmenu_show_resume_content)
          if (menu_entries_append(list,
                msg_hash_to_str(MENU_ENUM_LABEL_VALUE_RESUME_CONTENT),

@@ -448,6 +448,11 @@ static int action_bind_sublabel_quit_retroarch(file_list_t* list,
 {
    settings_t *settings = config_get_ptr();
    bool save_on_exit    = settings->bools.config_save_on_exit;
+#ifdef __WINRT__
+   /* Game Vault: quitting here opens Game Vault again (Quick Menu "Return to Game Vault", main menu Quit) */
+   strlcpy(s, "Close the game and go back to Game Vault.", len);
+   return 1;
+#endif
    if (save_on_exit)
       strlcpy(s, msg_hash_to_str(MENU_ENUM_SUBLABEL_QUIT_RETROARCH), len);
    else
