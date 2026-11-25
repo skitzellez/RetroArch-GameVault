@@ -1343,6 +1343,43 @@ static void MsxCoreOptions(const std::vector<std::string> &args)
    }
 }
 
+/* Game Vault 1.22.2.153: PrBoom (Doom) looks for each music track (intro.mp3, e1m5.mp3...) in every folder from the
+ * game's up to the drive's root when "look on parent folders" is on. On the Xbox each folder takes ~0.25 s, so the
+ * title and every new level froze for ~2.5 s, and players quit (FREE GAMES Doom: 8 of 17 starts closed right away,
+ * 11-23/24). Off, it checks the game's folder and the bios folders only. The IWAD is the game file itself and
+ * prboom.wad is built into the core, so nothing it needs is in a parent folder. */
+static void PrboomCoreOptions(const std::vector<std::string> &args)
+{
+   bool prboom = false;
+   for (size_t i = 0; i + 1 < args.size(); i++)
+      prboom |= args[i] == "-L" && args[i + 1].find("prboom") != std::string::npos;
+   if (!prboom)
+      return;
+   const std::string dir  = LocalStateDir() + "\\config\\PrBoom";
+   const std::string path = dir + "\\PrBoom.opt";
+   CreateDirectoryFromAppW(winrt::to_hstring(LocalStateDir() + "\\config").c_str(), NULL);
+   CreateDirectoryFromAppW(winrt::to_hstring(dir).c_str(), NULL);
+   std::string text = ReadSmallFile(path), out;
+   for (size_t at = 0; at < text.size();)
+   {
+      size_t end       = text.find('\n', at);
+      end              = end == std::string::npos ? text.size() : end + 1;
+      std::string line = text.substr(at, end - at);
+      if (line.compare(0, 24, "prboom-find_recursive_on") != 0)
+         out += line;
+      at = end;
+   }
+   if (!out.empty() && out.back() != '\n')
+      out += "\n";
+   out += "prboom-find_recursive_on = \"disabled\"\n";
+   if (FILE *f = fopen(path.c_str(), "wb"))
+   {
+      fwrite(out.data(), 1, out.size(), f);
+      fclose(f);
+      RARCH_LOG("[Game Vault] PrBoom: no search in parent folders\n");
+   }
+}
+
 /* Before start-up: the folders go in a small extra config, given to RetroArch as --appendconfig. */
 static void HomeBeforeStart(std::vector<std::string> *args)
 {
@@ -1366,6 +1403,7 @@ static void HomeBeforeStart(std::vector<std::string> *args)
    NetplayCoreOptions(*args);
    GvResolutionOptions(*args);
    MsxCoreOptions(*args);
+   PrboomCoreOptions(*args);
    /* The menu's pictures and fonts (assets\ozone: the selection bar, the icons) come with this package. A console
     * never had them in RetroArch's own folder, so the menu showed no selection at all. The package's copy is used
     * whenever the folder set in the settings lacks them (its path changes with each update, hence every start).
