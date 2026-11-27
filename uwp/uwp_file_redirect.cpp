@@ -312,13 +312,15 @@ extern "C" unsigned uwp_redirect_file_apis(void *module)
    return count;
 }
 
-/* The C runtime (fopen, stat, opendir in every core) and RetroArch itself, once at start-up. */
+/* The C runtime (fopen, stat, opendir in every core) and RetroArch itself (this module, which is not always the
+   process's .exe), once at start-up. */
+extern "C" IMAGE_DOS_HEADER __ImageBase;
 extern "C" void uwp_redirect_file_apis_startup(void)
 {
    static const wchar_t *const modules[] = {
       L"ucrtbase.dll", L"ucrtbased.dll", L"msvcrt.dll", NULL
    };
-   unsigned n = uwp_redirect_file_apis(GetModuleHandleW(NULL));
+   unsigned n = uwp_redirect_file_apis((HMODULE)&__ImageBase);
    for (int i = 0; modules[i]; i++)
    {
       HMODULE m = GetModuleHandleW(modules[i]);

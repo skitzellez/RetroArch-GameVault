@@ -43,6 +43,8 @@
 #include <file/file_path.h>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
+#include <thread>
 
 #include "configuration.h"
 #include "paths.h"
@@ -312,10 +314,63 @@ static inline float ConvertDipsToPixels(float dips, float dpi)
    return floorf(dips * dpi / dips_per_inch + 0.5f);
 }
 
+/* A launcher in the package may start RetroArch from this module (RetroArchTopMain, beside wWinMain) and pass
+ * this table. */
+struct RetroArchBaseApi
+{
+   uint32_t size, version;
+   void (*log)(const wchar_t *line);
+   const char *(*av_version_info)();
+   const wchar_t *local_folder;
+   uint8_t *top_base;
+   uint64_t top_size;
+   const wchar_t *top_version;
+   const wchar_t *top_from;
+   void (*mark_good)();
+   void (*set_crash_filter)(long (*filter)(void *exception_pointers));
+};
+static const RetroArchBaseApi *g_base = nullptr;
+
+/* how the last run ended (LocalState\run_state.txt): running, closed, suspended or crashed */
+static void GvRunState(const char *state)
+{
+   try
+   {
+      std::wstring path = std::wstring(ApplicationData::Current().LocalFolder().Path()) + L"\\run_state.txt";
+      HANDLE f = CreateFile2(path.c_str(), GENERIC_WRITE, 0, CREATE_ALWAYS, nullptr);
+      if (f != INVALID_HANDLE_VALUE)
+      {
+         DWORD w = 0;
+         WriteFile(f, state, (DWORD)strlen(state), &w, nullptr);
+         FlushFileBuffers(f);
+         CloseHandle(f);
+      }
+   }
+   catch (...)
+   {
+   }
+}
+
+static LONG WINAPI GvCrashFilter(EXCEPTION_POINTERS *info)
+{
+   GvRunState("crashed");
+   return EXCEPTION_CONTINUE_SEARCH;
+}
+
 /* The main function is only used to initialize our IFrameworkView class. */
 int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+
+   SetUnhandledExceptionFilter(GvCrashFilter);
+   if (g_base && g_base->version >= 2 && g_base->set_crash_filter) /* Windows skips a filter in this module then */
+      g_base->set_crash_filter([](void *p) -> long { return GvCrashFilter(static_cast<EXCEPTION_POINTERS*>(p)); });
+   GvRunState("running");
+   if (g_base && g_base->version >= 2 && g_base->mark_good)
+      std::thread([] {
+            std::this_thread::sleep_for(std::chrono::seconds(45));
+            g_base->mark_good();
+            }).detach();
 
    DWORD dwAttrib;
    char vfs_cache_dir[MAX_PATH];
@@ -357,6 +412,12 @@ int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
    auto direct3DApplicationSource = winrt::make<Direct3DApplicationSource>();
    CoreApplication::Run(direct3DApplicationSource);
    return 0;
+}
+
+extern "C" __declspec(dllexport) int RetroArchTopMain(const RetroArchBaseApi *api)
+{
+   g_base = api;
+   return wWinMain(nullptr, nullptr, nullptr, 0);
 }
 
 IFrameworkView Direct3DApplicationSource::CreateView()
@@ -503,6 +564,7 @@ void App::Run()
  * class is torn down while the app is in the foreground. */
 void App::Uninitialize()
 {
+   GvRunState("closed");
 #ifdef GV_A3_FEATURES   /* gamerdad-a3: screen style, seats, Kid mode (gv_play.inc) */
    if (!GvKeepResume())   /* Kid mode closed it: the game picks up there next time */
       ResumeForget();   /* quit the normal way: nothing to take the player back to */
@@ -1647,6 +1709,8 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
       return;
    }
    m_initialized = true;
+   if (g_base && g_base->version >= 2 && g_base->top_version)
+      RARCH_LOG("[UWP] RetroArch for Game Vault %ls (%ls).\n", g_base->top_version, g_base->top_from);
 
    /* Game Vault: the memory this app may use. Dev Home starts it with 1 GB on App type "App" (about 5 GB on
     * "Game"); bigger systems then run out and the console closes RetroArch, which looks like "it opens and closes".
@@ -1715,6 +1779,7 @@ void App::OnActivated(CoreApplicationView const& applicationView, IActivatedEven
 
 void App::OnSuspending(IInspectable const& sender, SuspendingEventArgs const& args)
 {
+   GvRunState("suspended");
    /* This function will ensure that configs are saved in case the app
     * is sent to background or terminated for saving configs on quit
     * for saving configs on quit now configs will be saved in
